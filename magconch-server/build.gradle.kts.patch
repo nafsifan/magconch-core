@@ -4,19 +4,19 @@
      minecraftVersion = providers.gradleProperty("mcVersion")
      gitFilePatches = false
  
-+    val fork = forks.register("fork") {
++    val magconch = forks.register("magconch") {
 +        upstream.patchDir("paperServer") {
 +            upstreamPath = "paper-server"
 +            excludes = setOf("src/minecraft", "patches", "build.gradle.kts")
-+            patchesDir = rootDirectory.dir("fork-server/paper-patches")
++            patchesDir = rootDirectory.dir("magconch-server/paper-patches")
 +            outputDir = rootDirectory.dir("paper-server")
 +        }
 +    }
 +
-+    activeFork = fork
++    activeFork = magconch
 +
      updatingMinecraft {
-         // oldPaperCommit = "d4fe85375af18bfa88f44d7c1e6a61904ae550cc"
+         //oldPaperCommit = "e5fe71723e2ffde7cc9fafc085ac3bb73e63175e"
      }
 @@ -86,7 +_,20 @@
      }
@@ -45,12 +45,12 @@
  
  dependencies {
 -    implementation(project(":paper-api"))
-+    implementation(project(":fork-api"))
-     implementation("ca.spottedleaf:leafpile:1.0.0")
-     implementation("org.jline:jline-terminal-ffm:3.27.1") // use ffm on java 22+
-     implementation("org.jline:jline-terminal-jni:3.27.1") // fall back to jni on java 21
-@@ -246,7 +_,7 @@
-     jvmArgumentProviders.add(provider)
++    implementation(project(":magconch-api"))
+     implementation(platform("ca.spottedleaf.leafpile:bom:1.2.4"))
+     implementation("ca.spottedleaf.leafpile:common")
+     implementation("ca.spottedleaf.leafpile:concurrentutil")
+@@ -258,7 +_,7 @@
+     )
  }
  
 -val generatedDir: java.nio.file.Path = layout.projectDirectory.dir("src/generated/java").asFile.toPath()
@@ -58,3 +58,12 @@
  idea {
      module {
          generatedSourceDirs.add(generatedDir.toFile())
+@@ -298,3 +_,7 @@
+         }
+     }
+ }
++
++tasks.createPaperclipJar {
++    outputZip = layout.buildDirectory.file("libs/magconch-core-${providers.gradleProperty("mcVersion").get()}.jar")
++}
+
