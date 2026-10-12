@@ -1,0 +1,584 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 12 Oct 2026 13:41:10 +0800
+Subject: [PATCH] Thirst
+
+
+diff --git a/net/minecraft/core/component/DataComponents.java b/net/minecraft/core/component/DataComponents.java
+index 40591f0806411e6e96116c2ec32b1dcee6185a14..5d82414c68dbba0a1eba0538de6c197bd39605ff 100644
+--- a/net/minecraft/core/component/DataComponents.java
++++ b/net/minecraft/core/component/DataComponents.java
+@@ -475,4 +475,14 @@ public class DataComponents {
+     private static <T> DataComponentType<T> register(final String id, final UnaryOperator<DataComponentType.Builder<T>> builder) {
+         return Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id, builder.apply(DataComponentType.builder()).build());
+     }
++
++    // magconch start - customize default components
++    public static final DataComponentType<ItemLore> EXTENDED_BEFORE_LORE = register("extended_before_lore", b -> b.persistent(ItemLore.CODEC));
++    public static final DataComponentType<ItemLore> EXTENDED_AFTER_LORE = register("extended_after_lore", b -> b.persistent(ItemLore.CODEC));
++
++    public static final java.util.Set<DataComponentType<?>> UNABLE_SEND_TO_CLIENT = java.util.Set.of(
++        EXTENDED_BEFORE_LORE,
++        EXTENDED_AFTER_LORE
++    );
++    // magconch end - customize default components
+ }
+diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
+index 56ee7ed4bdedbc5f7d12b9ccd547ff3984158b1d..06dc21d56fa3291579fa2a1f2d3d32693eedbb18 100644
+--- a/net/minecraft/server/level/ServerPlayer.java
++++ b/net/minecraft/server/level/ServerPlayer.java
+@@ -513,6 +513,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         input.read("recipeBook", ServerRecipeBook.Packed.CODEC)
+             .ifPresent(p -> this.recipeBook.loadUntrusted(p, id -> this.server.getRecipeManager().byKey(id).isPresent()));
+         this.getBukkitEntity().readExtraData(input); // CraftBukkit
++        this.thirstData.readAdditionalSaveData(input); // magconch - player thirst
+         if (this.isSleeping()) {
+             this.stopSleeping();
+         }
+@@ -565,6 +566,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+             output.store("ShoulderEntityRight", CompoundTag.CODEC, this.getShoulderEntityRight());
+         }
+         this.getBukkitEntity().setExtraData(output); // CraftBukkit
++        this.thirstData.addAdditionalSaveData(output); // magconch - player thirst
+     }
+ 
+     private void saveParentVehicle(final ValueOutput playerOutput) {
+@@ -817,6 +819,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+                 }
+ 
+                 this.foodData.tick(this);
++                this.thirstData.tick(); // magconch - player thirst
+                 this.awardStat(Stats.PLAY_TIME);
+                 this.awardStat(Stats.TOTAL_WORLD_TIME);
+                 if (this.isAlive()) {
+@@ -2222,6 +2225,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+             // this.getAttributes().assignPermanentModifiers(oldPlayer.getAttributes()); // CraftBukkit
+             this.setHealth(oldPlayer.getHealth());
+             this.foodData = oldPlayer.foodData;
++            this.thirstData = oldPlayer.thirstData; // magconch - player thirst
+ 
+             for (MobEffectInstance effect : oldPlayer.getActiveEffects()) {
+                 // this.addEffect(new MobEffectInstance(effect)); // CraftBukkit
+@@ -2230,6 +2234,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+             this.transferInventoryXpAndScore(oldPlayer);
+             this.portalProcess = oldPlayer.portalProcess;
+         } else {
++            this.thirstData = new net.minecraft.world.entity.player.ThirstData(this); // magconch - player thirst
+             // this.setHealth(this.getMaxHealth()); // CraftBukkit
+             if (this.level().getGameRules().get(GameRules.KEEP_INVENTORY) || oldPlayer.isSpectator()) {
+                 this.transferInventoryXpAndScore(oldPlayer);
+diff --git a/net/minecraft/world/entity/Entity.java b/net/minecraft/world/entity/Entity.java
+index db60944f47d99ec8b213066f4939418a87d8c26e..7258c0bc1bc0cb63ee4cc8f1456968432408897a 100644
+--- a/net/minecraft/world/entity/Entity.java
++++ b/net/minecraft/world/entity/Entity.java
+@@ -3874,6 +3874,7 @@ public abstract class Entity
+     }
+ 
+     public int getAirSupply() {
++        if (this instanceof net.minecraft.world.entity.player.Player player) return player.realAir; // magconch - player thirst
+         return this.entityData.get(DATA_AIR_SUPPLY_ID);
+     }
+ 
+@@ -3890,10 +3891,18 @@ public abstract class Entity
+             }
+             return;
+         }
+-        this.entityData.set(DATA_AIR_SUPPLY_ID, event.getAmount());
++        if (this instanceof net.minecraft.world.entity.player.Player player) {
++            player.realAir = event.getAmount();
++        } else {
++            this.entityData.set(DATA_AIR_SUPPLY_ID, event.getAmount());
++        }
+         // CraftBukkit end
+     }
+ 
++    public void sendAirSupply(final int supply) {
++        this.entityData.set(DATA_AIR_SUPPLY_ID, supply, true);
++    }
++
+     public void clearFreeze() {
+         if (this.freezeLocked) return; // Paper - Freeze Tick Lock API
+         this.setTicksFrozen(0);
+diff --git a/net/minecraft/world/entity/LivingEntity.java b/net/minecraft/world/entity/LivingEntity.java
+index 23297b54c74684765f90e9e599d051a44357e9a5..b0998f46d192844b3713e9c2499ee2c75f885714 100644
+--- a/net/minecraft/world/entity/LivingEntity.java
++++ b/net/minecraft/world/entity/LivingEntity.java
+@@ -1371,6 +1371,11 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+ 
+     public void heal(final float heal, final EntityRegainHealthEvent.RegainReason regainReason, final boolean isFastRegen) {
+         // Paper end - Forward
++        // magconch start - player thirst
++        if (this instanceof net.minecraft.world.entity.player.Player player && player.thirstData.isThirsty()) {
++            return;
++        }
++        // magconch end - player thirst
+         float health = this.getHealth();
+         if (health > 0.0F) {
+             EntityRegainHealthEvent event = new EntityRegainHealthEvent(this.getBukkitEntity(), heal, regainReason, isFastRegen); // Paper
+diff --git a/net/minecraft/world/entity/player/Player.java b/net/minecraft/world/entity/player/Player.java
+index 4068dc1cea4edca196dc0c58b4804e94dd07881e..485b95402e23f6a39a77556d0b634244fd5fdfc3 100644
+--- a/net/minecraft/world/entity/player/Player.java
++++ b/net/minecraft/world/entity/player/Player.java
+@@ -153,6 +153,22 @@ public abstract class Player extends Avatar implements ContainerUser {
+     public final InventoryMenu inventoryMenu;
+     public AbstractContainerMenu containerMenu;
+     protected FoodData foodData = new FoodData();
++    // magconch start - player thirst
++    public int realAir = 300;
++    public ThirstData thirstData = new ThirstData(this);
++
++    public int getThirstValue() {
++        return this.thirstData.getThirstValue();
++    }
++
++    public void setThirstValue(final int value) {
++        this.thirstData.setThirstValue(value);
++    }
++
++    public void addThirstValue(final int add) {
++        this.thirstData.addThirstValue(add);
++    }
++    // magconch end - player thirst
+     protected int jumpTriggerTime;
+     public int takeXpDelay;
+     private int sleepCounter = 0;
+diff --git a/net/minecraft/world/food/FoodProperties.java b/net/minecraft/world/food/FoodProperties.java
+index b173fd2a8e400e5525e951f5f907ab031e003235..9d1d6cc6f2e5a00438ca78e97a185baeb8ce6961 100644
+--- a/net/minecraft/world/food/FoodProperties.java
++++ b/net/minecraft/world/food/FoodProperties.java
+@@ -17,12 +17,17 @@ import net.minecraft.world.item.component.Consumable;
+ import net.minecraft.world.item.component.ConsumableListener;
+ import net.minecraft.world.level.Level;
+ 
+-public record FoodProperties(int nutrition, float saturation, boolean canAlwaysEat) implements ConsumableListener {
++public record FoodProperties(int nutrition, float saturation, boolean canAlwaysEat, int moisture) implements ConsumableListener {
++    public FoodProperties(final int nutrition, final float saturation, final boolean canAlwaysEat) {
++        this(nutrition, saturation, canAlwaysEat, 0);
++    }
++
+     public static final Codec<FoodProperties> DIRECT_CODEC = RecordCodecBuilder.create(
+         i -> i.group(
+                 ExtraCodecs.NON_NEGATIVE_INT.fieldOf("nutrition").forGetter(FoodProperties::nutrition),
+                 Codec.FLOAT.fieldOf("saturation").forGetter(FoodProperties::saturation),
+-                Codec.BOOL.optionalFieldOf("can_always_eat", false).forGetter(FoodProperties::canAlwaysEat)
++                Codec.BOOL.optionalFieldOf("can_always_eat", false).forGetter(FoodProperties::canAlwaysEat),
++                Codec.INT.optionalFieldOf("moisture", 0).forGetter(FoodProperties::moisture)
+             )
+             .apply(i, FoodProperties::new)
+     );
+@@ -33,7 +38,7 @@ public record FoodProperties(int nutrition, float saturation, boolean canAlwaysE
+         FoodProperties::saturation,
+         ByteBufCodecs.BOOL,
+         FoodProperties::canAlwaysEat,
+-        FoodProperties::new
++        (nutrition, saturation, canAlwaysEat) -> new FoodProperties(nutrition, saturation, canAlwaysEat, 0)
+     );
+ 
+     @Override
+@@ -42,6 +47,9 @@ public record FoodProperties(int nutrition, float saturation, boolean canAlwaysE
+         level.playSound(null, user.getX(), user.getY(), user.getZ(), consumable.sound().value(), SoundSource.NEUTRAL, 1.0F, random.triangle(1.0F, 0.4F));
+         if (user instanceof Player player) {
+             player.getFoodData().eat(this, stack, (net.minecraft.server.level.ServerPlayer) player); // CraftBukkit
++            if (this.moisture != 0) {
++                player.addThirstValue(this.moisture); // magconch - player thirst
++            }
+             level.playSound(
+                 null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_BURP, SoundSource.PLAYERS, 0.5F, Mth.randomBetween(random, 0.9F, 1.0F)
+             );
+@@ -52,6 +60,7 @@ public record FoodProperties(int nutrition, float saturation, boolean canAlwaysE
+         private int nutrition;
+         private float saturationModifier;
+         private boolean canAlwaysEat;
++        private int moisture;
+ 
+         public FoodProperties.Builder nutrition(final int nutrition) {
+             this.nutrition = nutrition;
+@@ -68,9 +77,14 @@ public record FoodProperties(int nutrition, float saturation, boolean canAlwaysE
+             return this;
+         }
+ 
++        public FoodProperties.Builder moisture(final int moisture) {
++            this.moisture = moisture;
++            return this;
++        }
++
+         public FoodProperties build() {
+             float saturation = FoodConstants.saturationByModifier(this.nutrition, this.saturationModifier);
+-            return new FoodProperties(this.nutrition, saturation, this.canAlwaysEat);
++            return new FoodProperties(this.nutrition, saturation, this.canAlwaysEat, this.moisture);
+         }
+     }
+ }
+diff --git a/net/minecraft/world/food/Foods.java b/net/minecraft/world/food/Foods.java
+index eaf897ec7cbf6642ce61d0b15db240b57c109497..f4b1f828e78f366edae2e9a6ab8c520afd463f20 100644
+--- a/net/minecraft/world/food/Foods.java
++++ b/net/minecraft/world/food/Foods.java
+@@ -1,82 +1,64 @@
+ package net.minecraft.world.food;
+ 
+ public class Foods {
+-    public static final FoodProperties APPLE = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties BAKED_POTATO = new FoodProperties.Builder()
+-        .nutrition(5)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL)
+-        .build();
+-    public static final FoodProperties BEEF = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties BEETROOT = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).build();
++    // 液体与饮品
++    public static final FoodProperties POTION = new FoodProperties.Builder().alwaysEdible().moisture(10).build();
++    public static final FoodProperties MILK_BUCKET = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).alwaysEdible().moisture(8).build();
++    public static final FoodProperties HONEY_BOTTLE = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).alwaysEdible().moisture(-4).build();
++    public static final FoodProperties OMINOUS_BOTTLE = new FoodProperties.Builder().alwaysEdible().moisture(-4).build();
++
++    // 炖汤类 (高水分 +8)
+     public static final FoodProperties BEETROOT_SOUP = stew(6).build();
+-    public static final FoodProperties BREAD = new FoodProperties.Builder().nutrition(5).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).build();
+-    public static final FoodProperties CARROT = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).build();
+-    public static final FoodProperties CHICKEN = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties CHORUS_FRUIT = new FoodProperties.Builder()
+-        .nutrition(4)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_LOW)
+-        .alwaysEdible()
+-        .build();
+-    public static final FoodProperties COD = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties COOKED_BEEF = new FoodProperties.Builder().nutrition(8).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).build();
+-    public static final FoodProperties COOKED_CHICKEN = new FoodProperties.Builder()
+-        .nutrition(6)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL)
+-        .build();
+-    public static final FoodProperties COOKED_COD = new FoodProperties.Builder().nutrition(5).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).build();
+-    public static final FoodProperties COOKED_MUTTON = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).build();
+-    public static final FoodProperties COOKED_PORKCHOP = new FoodProperties.Builder()
+-        .nutrition(8)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_GOOD)
+-        .build();
+-    public static final FoodProperties COOKED_RABBIT = new FoodProperties.Builder()
+-        .nutrition(5)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL)
+-        .build();
+-    public static final FoodProperties COOKED_SALMON = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).build();
+-    public static final FoodProperties COOKIE = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties DRIED_KELP = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties ENCHANTED_GOLDEN_APPLE = new FoodProperties.Builder()
+-        .nutrition(4)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_SUPERNATURAL)
+-        .alwaysEdible()
+-        .build();
+-    public static final FoodProperties GOLDEN_APPLE = new FoodProperties.Builder()
+-        .nutrition(4)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_SUPERNATURAL)
+-        .alwaysEdible()
+-        .build();
+-    public static final FoodProperties GOLDEN_CARROT = new FoodProperties.Builder()
+-        .nutrition(6)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_SUPERNATURAL)
+-        .build();
+-    public static final FoodProperties HONEY_BOTTLE = new FoodProperties.Builder()
+-        .nutrition(6)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_POOR)
+-        .alwaysEdible()
+-        .build();
+-    public static final FoodProperties MELON_SLICE = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+     public static final FoodProperties MUSHROOM_STEW = stew(6).build();
+-    public static final FoodProperties MUTTON = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties POISONOUS_POTATO = new FoodProperties.Builder()
+-        .nutrition(2)
+-        .saturationModifier(FoodConstants.FOOD_SATURATION_LOW)
+-        .build();
+-    public static final FoodProperties PORKCHOP = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties POTATO = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties PUFFERFISH = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties PUMPKIN_PIE = new FoodProperties.Builder().nutrition(8).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+-    public static final FoodProperties RABBIT = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).build();
+     public static final FoodProperties RABBIT_STEW = stew(10).build();
+-    public static final FoodProperties ROTTEN_FLESH = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties SALMON = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties SPIDER_EYE = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).build();
+     public static final FoodProperties SUSPICIOUS_STEW = stew(6).alwaysEdible().build();
+-    public static final FoodProperties SWEET_BERRIES = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties GLOW_BERRIES = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
+-    public static final FoodProperties TROPICAL_FISH = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).build();
++
++    // 生鲜果蔬
++    public static final FoodProperties APPLE = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(4).build();
++    public static final FoodProperties MELON_SLICE = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(6).build();
++    public static final FoodProperties CARROT = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(3).build();
++    public static final FoodProperties BEETROOT = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(3).build();
++    public static final FoodProperties SWEET_BERRIES = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(3).build();
++    public static final FoodProperties GLOW_BERRIES = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(3).build();
++    public static final FoodProperties CHORUS_FRUIT = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).alwaysEdible().moisture(5).build();
++
++    // 熟食主餐 (微量水分 1)
++    public static final FoodProperties BAKED_POTATO = new FoodProperties.Builder().nutrition(5).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(1).build();
++    public static final FoodProperties COOKED_BEEF = new FoodProperties.Builder().nutrition(8).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).moisture(1).build();
++    public static final FoodProperties COOKED_PORKCHOP = new FoodProperties.Builder().nutrition(8).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).moisture(1).build();
++    public static final FoodProperties COOKED_MUTTON = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).moisture(1).build();
++    public static final FoodProperties COOKED_CHICKEN = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(1).build();
++    public static final FoodProperties COOKED_SALMON = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).moisture(1).build();
++    public static final FoodProperties COOKED_COD = new FoodProperties.Builder().nutrition(5).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(1).build();
++    public static final FoodProperties COOKED_RABBIT = new FoodProperties.Builder().nutrition(5).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(1).build();
++
++    // 生肉与水产 (含生水 2~3)
++    public static final FoodProperties BEEF = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(3).build();
++    public static final FoodProperties PORKCHOP = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(3).build();
++    public static final FoodProperties MUTTON = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(3).build();
++    public static final FoodProperties CHICKEN = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(2).build();
++    public static final FoodProperties RABBIT = new FoodProperties.Builder().nutrition(3).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(2).build();
++    public static final FoodProperties SALMON = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(2).build();
++    public static final FoodProperties COD = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(2).build();
++    public static final FoodProperties POTATO = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(2).build();
++    public static final FoodProperties POISONOUS_POTATO = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(2).build();
++    public static final FoodProperties PUFFERFISH = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(2).build();
++    public static final FoodProperties TROPICAL_FISH = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(2).build();
++    public static final FoodProperties ROTTEN_FLESH = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(1).build();
++    public static final FoodProperties SPIDER_EYE = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_GOOD).moisture(1).build();
++
++    // 干燥主食与干粮 (极长保质期 240 分钟，不补水)
++    public static final FoodProperties BREAD = new FoodProperties.Builder().nutrition(5).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(0).build();
++    public static final FoodProperties COOKIE = new FoodProperties.Builder().nutrition(2).saturationModifier(FoodConstants.FOOD_SATURATION_POOR).moisture(0).build();
++    public static final FoodProperties PUMPKIN_PIE = new FoodProperties.Builder().nutrition(8).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(1).build();
++    public static final FoodProperties DRIED_KELP = new FoodProperties.Builder().nutrition(1).saturationModifier(FoodConstants.FOOD_SATURATION_LOW).moisture(0).build();
++
++    // 金质与魔法食物 (超长或永久)
++    public static final FoodProperties ENCHANTED_GOLDEN_APPLE = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_SUPERNATURAL).alwaysEdible().moisture(4).build();
++    public static final FoodProperties GOLDEN_APPLE = new FoodProperties.Builder().nutrition(4).saturationModifier(FoodConstants.FOOD_SATURATION_SUPERNATURAL).alwaysEdible().moisture(4).build();
++    public static final FoodProperties GOLDEN_CARROT = new FoodProperties.Builder().nutrition(6).saturationModifier(FoodConstants.FOOD_SATURATION_SUPERNATURAL).moisture(3).build();
+ 
+     private static FoodProperties.Builder stew(final int nutrition) {
+-        return new FoodProperties.Builder().nutrition(nutrition).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL);
++        return new FoodProperties.Builder().nutrition(nutrition).saturationModifier(FoodConstants.FOOD_SATURATION_NORMAL).moisture(8);
+     }
+ }
+diff --git a/net/minecraft/world/item/Item.java b/net/minecraft/world/item/Item.java
+index aef1a9cb52efc2f432f8015f5aef5a76fe1014d5..a7af8281807835ade90a5ed798e903dabe74744c 100644
+--- a/net/minecraft/world/item/Item.java
++++ b/net/minecraft/world/item/Item.java
+@@ -11,6 +11,7 @@ import java.util.Map;
+ import java.util.Objects;
+ import java.util.Optional;
+ import java.util.function.Consumer;
++import net.minecraft.ChatFormatting;
+ import net.minecraft.SharedConstants;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Holder;
+@@ -400,13 +401,48 @@ public class Item implements ItemLike, FeatureElement {
+         private @Nullable ResourceKey<Item> id;
+         private DependantName<Item, String> descriptionId = ITEM_DESCRIPTION_ID;
+         private final DependantName<Item, Identifier> model = ResourceKey::identifier;
++        // magconch start - food lore
++        private final java.util.List<Component> beforeLores = new java.util.ArrayList<>();
++        private final java.util.List<Component> afterLores = new java.util.ArrayList<>();
++
++        public Item.Properties loreBefore(final Component component) {
++            this.beforeLores.add(component);
++            return this;
++        }
++
++        public Item.Properties loreAfter(final Component component) {
++            this.afterLores.add(component);
++            return this;
++        }
++
++        public Item.Properties foodLore(final int nutrition, final int moisture) {
++            StringBuilder builder = new StringBuilder();
++            if (nutrition != 0) {
++                builder.append("\uD83C\uDF57").append(nutrition);
++            }
++            if (moisture != 0) {
++                if (!builder.isEmpty()) builder.append(" ");
++                builder.append("\uD83D\uDCA7").append(moisture);
++            }
++            String string = builder.toString();
++            if (!string.isEmpty()) {
++                this.loreAfter(Component.literal(string).withStyle(ChatFormatting.GRAY));
++            }
++            return this;
++        }
++        // magconch end - food lore
+ 
+         public Item.Properties food(final FoodProperties foodProperties) {
+             return this.food(foodProperties, Consumables.DEFAULT_FOOD);
+         }
+ 
+-        public Item.Properties food(final FoodProperties foodProperties, final Consumable consumable) {
+-            return this.component(DataComponents.FOOD, foodProperties).component(DataComponents.CONSUMABLE, consumable);
++        public Item.Properties food(final FoodProperties foodProperties, final @Nullable Consumable consumable) {
++            this.foodLore(foodProperties.nutrition(), foodProperties.moisture()); // magconch - food lore
++            if (consumable == null) {
++                return this.component(DataComponents.FOOD, foodProperties);
++            } else {
++                return this.component(DataComponents.FOOD, foodProperties).component(DataComponents.CONSUMABLE, consumable);
++            }
+         }
+ 
+         public Item.Properties villagerFood(final int nutrition) {
+@@ -734,11 +770,21 @@ public class Item implements ItemLike, FeatureElement {
+ 
+         private DataComponentInitializers.Initializer<Item> finalizeInitializer(final Component name, final Identifier model) {
+             return this.componentInitializer
+-                .andThen((components, var3, var4) -> components.set(DataComponents.ITEM_NAME, name).set(DataComponents.ITEM_MODEL, model).addValidator(c -> {
++                .andThen((components, var3, var4) -> {
++                    // magconch start - food lore
++                    if (!this.beforeLores.isEmpty()) {
++                        components.set(DataComponents.EXTENDED_BEFORE_LORE, new net.minecraft.world.item.component.ItemLore(this.beforeLores));
++                    }
++                    if (!this.afterLores.isEmpty()) {
++                        components.set(DataComponents.EXTENDED_AFTER_LORE, new net.minecraft.world.item.component.ItemLore(this.afterLores));
++                    }
++                    // magconch end - food lore
++                    components.set(DataComponents.ITEM_NAME, name).set(DataComponents.ITEM_MODEL, model).addValidator(c -> {
+                     if (c.has(DataComponents.DAMAGE) && c.getOrDefault(DataComponents.MAX_STACK_SIZE, 1) > 1) {
+                         throw new IllegalStateException("Item cannot have both durability and be stackable");
+                     }
+-                }));
++                });
++                });
+         }
+     }
+ 
+diff --git a/net/minecraft/world/item/ItemStack.java b/net/minecraft/world/item/ItemStack.java
+index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db961c8dd4f 100644
+--- a/net/minecraft/world/item/ItemStack.java
++++ b/net/minecraft/world/item/ItemStack.java
+@@ -39,7 +39,11 @@ import net.minecraft.network.chat.HoverEvent;
+ import net.minecraft.network.chat.MutableComponent;
+ import net.minecraft.network.codec.ByteBufCodecs;
+ import net.minecraft.network.codec.StreamCodec;
++import net.minecraft.nbt.CompoundTag;
++import net.minecraft.nbt.NbtOps;
++import net.minecraft.nbt.Tag;
+ import net.minecraft.resources.RegistryOps;
++import net.minecraft.server.MinecraftServer;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.stats.Stats;
+@@ -182,6 +186,17 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+ 
+                 Holder<Item> item = Item.STREAM_CODEC.decode(input);
+                 DataComponentPatch patch = patchCodec.decode(input);
++                // magconch start - customize default components: 修复创造模式物品
++                if (patchCodec == DataComponentPatch.DELIMITED_STREAM_CODEC) {
++                    Object customDataObj = patch.map.get(DataComponents.CUSTOM_DATA);
++                    if (customDataObj instanceof net.minecraft.world.item.component.CustomData customData) {
++                        Optional<DataComponentPatch> originalComponents = customData.getUnsafe().read("Magconch.OriginalComponents", DataComponentPatch.CODEC, input.registryAccess().createSerializationContext(NbtOps.INSTANCE));
++                        if (originalComponents.isPresent()) {
++                            patch = originalComponents.get();
++                        }
++                    }
++                }
++                // magconch end - customize default components: 修复创造模式物品
+                 return new ItemStack(item, count, patch);
+             }
+ 
+@@ -196,7 +211,7 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+                     boolean prev = net.minecraft.network.chat.ComponentSerialization.DONT_RENDER_TRANSLATABLES.get();
+                     try (final io.papermc.paper.util.SafeAutoClosable ignored = io.papermc.paper.util.sanitizer.ItemObfuscationSession.withContext(c -> c.itemStack(itemStack))) { // pass the itemstack as context to the obfuscation session
+                         net.minecraft.network.chat.ComponentSerialization.DONT_RENDER_TRANSLATABLES.set(true);
+-                    patchCodec.encode(output, itemStack.components.asPatch());
++                    patchCodec.encode(output, itemStack.getRemoteComponentsPatch()); // magconch - customize default components
+                     } finally {
+                         net.minecraft.network.chat.ComponentSerialization.DONT_RENDER_TRANSLATABLES.set(prev);
+                     }
+@@ -243,6 +258,63 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+         return !this.isEmpty() ? this.components.asPatch() : DataComponentPatch.EMPTY;
+     }
+ 
++    // magconch start - customize default components
++    public DataComponentPatch getRemoteComponentsPatch() {
++        if (!this.isEmpty()) {
++            DataComponentPatch.Builder builder = DataComponentPatch.builder();
++
++            boolean changed = false;
++            DataComponentPatch patch = this.components.asPatch();
++            DataComponentPatch.SplitResult split = patch.split();
++
++            for (TypedDataComponent<?> component : split.added()) {
++                if (!DataComponents.UNABLE_SEND_TO_CLIENT.contains(component.type())) {
++                    builder.set(component);
++                } else {
++                    changed = true;
++                }
++            }
++
++            for (DataComponentType<?> type : split.removed()) {
++                if (!DataComponents.UNABLE_SEND_TO_CLIENT.contains(type)) {
++                    builder.remove(type);
++                } else {
++                    changed = true;
++                }
++            }
++
++            changed |= this.saveAdditional(builder);
++            if (changed && !patch.isEmpty()) {
++                CompoundTag compoundTag = new CompoundTag();
++                RegistryOps<Tag> registryOps = MinecraftServer.getServer().registryAccess().createSerializationContext(NbtOps.INSTANCE);
++                compoundTag.store("Magconch.OriginalComponents", DataComponentPatch.CODEC, registryOps, patch);
++                builder.set(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(compoundTag));
++            }
++
++            return builder.build();
++        }
++        return DataComponentPatch.EMPTY;
++    }
++
++    private boolean saveAdditional(final DataComponentPatch.Builder builder) {
++        boolean changed = false;
++
++        net.minecraft.world.item.component.ItemLore extendedBeforeLore = this.getOrDefault(DataComponents.EXTENDED_BEFORE_LORE, net.minecraft.world.item.component.ItemLore.EMPTY);
++        net.minecraft.world.item.component.ItemLore extendedAfterLore = this.getOrDefault(DataComponents.EXTENDED_AFTER_LORE, net.minecraft.world.item.component.ItemLore.EMPTY);
++        if (!extendedBeforeLore.lines().isEmpty() || !extendedAfterLore.lines().isEmpty()) {
++            net.minecraft.world.item.component.ItemLore lore = this.getOrDefault(DataComponents.LORE, net.minecraft.world.item.component.ItemLore.EMPTY);
++            List<Component> lores = new java.util.ArrayList<>();
++            lores.addAll(extendedBeforeLore.lines());
++            lores.addAll(lore.lines());
++            lores.addAll(extendedAfterLore.lines());
++            builder.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lores));
++            changed = true;
++        }
++
++        return changed;
++    }
++    // magconch end - customize default components
++
+     public DataComponentMap immutableComponents() {
+         return !this.isEmpty() ? this.components.toImmutableMap() : DataComponentMap.EMPTY;
+     }
+@@ -845,9 +917,16 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+         return a.is(b.getItem());
+     }
+ 
++    // magconch start - customize default components
+     public static boolean isSameItemSameComponents(final ItemStack a, final ItemStack b) {
+-        return a.is(b.getItem()) && (a.isEmpty() && b.isEmpty() || Objects.equals(a.components, b.components));
++        return a.is(b.getItem()) && (a.isEmpty() && b.isEmpty() || isSamePatchedComponents(a.components, b.components));
++    }
++
++    private static boolean isSamePatchedComponents(final PatchedDataComponentMap stack, final PatchedDataComponentMap other) {
++        if (stack == other) return true;
++        return stack.asPatch().equals(other.asPatch());
+     }
++    // magconch end - customize default components
+ 
+     public static boolean matchesIgnoringComponents(final ItemStack a, final ItemStack b, final Predicate<DataComponentType<?>> ignoredPredicate) {
+         if (a == b) {
+diff --git a/net/minecraft/world/item/Items.java b/net/minecraft/world/item/Items.java
+index 0f605f72cebfc89e2ce47bd8179f0a286c5b41e5..cb6d984da2188c68df45a71b6004c30582023f98 100644
+--- a/net/minecraft/world/item/Items.java
++++ b/net/minecraft/world/item/Items.java
+@@ -1977,7 +1977,7 @@ public class Items {
+     public static final Item LEATHER = registerItem(ItemIds.LEATHER);
+     public static final Item MILK_BUCKET = registerItem(
+         ItemIds.MILK_BUCKET,
+-        new Item.Properties().craftRemainder(BUCKET).component(DataComponents.CONSUMABLE, Consumables.MILK_BUCKET).usingConvertsTo(BUCKET).stacksTo(1)
++        new Item.Properties().craftRemainder(BUCKET).component(DataComponents.CONSUMABLE, Consumables.MILK_BUCKET).usingConvertsTo(BUCKET).stacksTo(1).food(Foods.MILK_BUCKET, null)
+     );
+     public static final Item PUFFERFISH_BUCKET = registerItem(
+         ItemIds.PUFFERFISH_BUCKET,
+@@ -2147,6 +2147,7 @@ public class Items {
+             .component(DataComponents.POTION_CONTENTS, PotionContents.EMPTY)
+             .component(DataComponents.CONSUMABLE, Consumables.DEFAULT_DRINK)
+             .usingConvertsTo(GLASS_BOTTLE)
++            .food(Foods.POTION, null)
+     );
+     public static final Item SPIDER_EYE = registerItem(ItemIds.SPIDER_EYE, new Item.Properties().food(Foods.SPIDER_EYE, Consumables.SPIDER_EYE));
+     public static final Item FERMENTED_SPIDER_EYE = registerItem(ItemIds.FERMENTED_SPIDER_EYE);

@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 12 Oct 2026 13:28:55 +0800
+Subject: [PATCH] Thirst
+
+
+diff --git a/src/main/java/org/bukkit/entity/Player.java b/src/main/java/org/bukkit/entity/Player.java
+index 190313bc060d5f8440cec7c249ad1d2f1074f5bc..673db3854dfa5c59c2463781e942bfe09d9855a9 100644
+--- a/src/main/java/org/bukkit/entity/Player.java
++++ b/src/main/java/org/bukkit/entity/Player.java
+@@ -269,6 +269,29 @@ public interface Player extends HumanEntity, Conversable, OfflinePlayer, PluginM
+      */
+     public Location getCompassTarget();
+ 
++    // magconch start - player thirst
++    /**
++     * Gets the player's current thirst value (0-20).
++     *
++     * @return thirst value
++     */
++    int getThirstValue();
++
++    /**
++     * Sets the player's current thirst value (0-20).
++     *
++     * @param value thirst value
++     */
++    void setThirstValue(int value);
++
++    /**
++     * Adds or subtracts thirst value.
++     *
++     * @param add amount to add
++     */
++    void addThirstValue(int add);
++    // magconch end - player thirst
++
+     /**
+      * Gets the socket address of this player
+      *

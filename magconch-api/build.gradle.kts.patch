@@ -33,7 +33,7 @@
  idea {
      module {
          generatedSourceDirs.add(generatedDir.toFile())
-@@ -116,7 +_,19 @@
+@@ -116,6 +_,18 @@
      main {
          java {
              srcDir(generatedDir)
@@ -46,13 +46,12 @@
 +    test {
 +        java {
 +            srcDir(file("../paper-api/src/test/java"))
-         }
++        }
 +        resources {
 +            srcDir(file("../paper-api/src/test/resources"))
-+        }
+         }
      }
  }
- 
 @@ -198,7 +_,7 @@
  
  tasks.withType<Javadoc>().configureEach {
