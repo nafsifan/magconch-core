@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 12 Oct 2026 15:15:04 +0800
+Subject: [PATCH] Implement TPSBar
+
+
+diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
+index d9acbf61ecd3d2800402880dd5d4d92239b01223..7e4083634d051268d60f2936d238111f5f947a99 100644
+--- a/net/minecraft/commands/Commands.java
++++ b/net/minecraft/commands/Commands.java
+@@ -262,6 +262,7 @@ public class Commands {
+         TellRawCommand.register(this.dispatcher, context);
+         TestCommand.register(this.dispatcher, context);
+         TickCommand.register(this.dispatcher);
++        org.magconch.command.TPSBarCommand.register(this.dispatcher); // magconch - tpsbar
+         TimeCommand.register(this.dispatcher, context);
+         TitleCommand.register(this.dispatcher, context);
+         TriggerCommand.register(this.dispatcher);
+diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
+index c3bf41af0273e902f881cc070fcef6dd64abb063..6b9bfb25e7c1c1e748b2d07cdae0a63da382fd7a 100644
+--- a/net/minecraft/server/MinecraftServer.java
++++ b/net/minecraft/server/MinecraftServer.java
+@@ -1098,6 +1098,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+         this.halt(wait, false);
+     }
+     public void halt(final boolean wait, final boolean isRestarting) {
++        org.magconch.task.BossBarTask.stopAll(); // magconch - tpsbar
+         this.isRestarting = isRestarting;
+         this.hasLoggedStop = true; // Paper - Debugging
+         if (this.isDebugging()) io.papermc.paper.util.TraceUtil.dumpTraceForThread("Server stopped"); // Paper - Debugging
+diff --git a/net/minecraft/server/dedicated/DedicatedServer.java b/net/minecraft/server/dedicated/DedicatedServer.java
+index 68675926ee85f738b3693a76fc29b80b80c717ed..25d7191c3062d8ed40f5c7a465730d10735af5fa 100644
+--- a/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/net/minecraft/server/dedicated/DedicatedServer.java
+@@ -369,6 +369,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+ 
+         this.saveEverything(false, true, true);
+         this.notificationManager().serverStarted();
++        org.magconch.task.BossBarTask.startAll(); // magconch - tpsbar
+         return true;
+     }
+ 
+diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
+index 06dc21d56fa3291579fa2a1f2d3d32693eedbb18..a098bd13938e0b16127dd0df12e12b1ffa88485f 100644
+--- a/net/minecraft/server/level/ServerPlayer.java
++++ b/net/minecraft/server/level/ServerPlayer.java
+@@ -256,6 +256,17 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+     private @Nullable Entity camera;
+     private boolean isChangingDimension;
+     public boolean seenCredits = false;
++    // magconch start - tpsbar
++    private boolean tpsBar = false;
++
++    public boolean tpsBar() {
++        return this.tpsBar;
++    }
++
++    public void tpsBar(final boolean tpsBar) {
++        this.tpsBar = tpsBar;
++    }
++    // magconch end - tpsbar
+     private final ServerRecipeBook recipeBook;
+     private @Nullable Vec3 levitationStartPos;
+     private int levitationStartTime;
+@@ -514,6 +525,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+             .ifPresent(p -> this.recipeBook.loadUntrusted(p, id -> this.server.getRecipeManager().byKey(id).isPresent()));
+         this.getBukkitEntity().readExtraData(input); // CraftBukkit
+         this.thirstData.readAdditionalSaveData(input); // magconch - player thirst
++        this.tpsBar = input.getBooleanOr("magconch.tpsbar", false); // magconch - tpsbar
+         if (this.isSleeping()) {
+             this.stopSleeping();
+         }
+@@ -567,6 +579,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         }
+         this.getBukkitEntity().setExtraData(output); // CraftBukkit
+         this.thirstData.addAdditionalSaveData(output); // magconch - player thirst
++        output.putBoolean("magconch.tpsbar", this.tpsBar); // magconch - tpsbar
+     }
+ 
+     private void saveParentVehicle(final ValueOutput playerOutput) {
+@@ -2221,6 +2234,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         this.gameMode.setGameModeForPlayer(oldPlayer.gameMode.getGameModeForPlayer(), oldPlayer.gameMode.getPreviousGameModeForPlayer());
+         this.onUpdateAbilities();
+         this.getAttributes().assignBaseValues(oldPlayer.getAttributes());
++        this.tpsBar = oldPlayer.tpsBar; // magconch - tpsbar
+         if (restoreAll) {
+             // this.getAttributes().assignPermanentModifiers(oldPlayer.getAttributes()); // CraftBukkit
+             this.setHealth(oldPlayer.getHealth());
+diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
+index a7f589970a04e520eb5cbe6dfeb333bc9cd479a8..61918c15348d4999dae26fb27460de5e4ee38f98 100644
+--- a/net/minecraft/server/players/PlayerList.java
++++ b/net/minecraft/server/players/PlayerList.java
+@@ -309,6 +309,7 @@ public abstract class PlayerList {
+         player.initInventoryMenu();
+         this.server.notificationManager().playerJoined(player);
+         playerConnection.resumeFlushing();
++        org.magconch.task.BossBarTask.addToAll(player); // magconch - tpsbar
+         // Paper start - Configurable player collision; Add to collideRule team if needed
+         final net.minecraft.world.scores.Scoreboard scoreboard = this.getServer().getLevel(Level.OVERWORLD).getScoreboard();
+         final PlayerTeam collideRuleTeam = scoreboard.getPlayerTeam(this.collideRuleTeamName);
+@@ -435,6 +436,7 @@ public abstract class PlayerList {
+         return this.remove(player, net.kyori.adventure.text.Component.translatable("multiplayer.player.left", net.kyori.adventure.text.format.NamedTextColor.YELLOW, io.papermc.paper.configuration.GlobalConfiguration.get().messages.useDisplayNameInQuitMessage ? player.getBukkitEntity().displayName() : io.papermc.paper.adventure.PaperAdventure.asAdventure(player.getDisplayName())));
+     }
+     public net.kyori.adventure.text.@Nullable Component remove(final ServerPlayer player, final net.kyori.adventure.text.Component leaveMessage) {
++        org.magconch.task.BossBarTask.removeFromAll(player.getBukkitEntity()); // magconch - tpsbar
+         // Paper end - Fix kick event leave message not being sent
+         ServerLevel level = player.level();
+         player.awardStat(Stats.LEAVE_GAME);
+@@ -658,6 +660,7 @@ public abstract class PlayerList {
+         this.playersByUUID.put(player.getUUID(), player);
+         player.initInventoryMenu();
+         player.setHealth(player.getHealth());
++        org.magconch.task.BossBarTask.addToAll(player); // magconch - tpsbar
+         // Paper start - Once we not reuse the player entity we can remove this.
+         // But we have to resend the player info as it's not marked as dirty
+         this.sendAllPlayerInfo(serverPlayer); // Update health
