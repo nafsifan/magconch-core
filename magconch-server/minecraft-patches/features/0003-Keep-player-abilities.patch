@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 12 Oct 2026 15:43:53 +0800
+Subject: [PATCH] Keep player abilities
+
+
+diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
+index a098bd13938e0b16127dd0df12e12b1ffa88485f..356cd6f0f8c8c53ec2fb1c488b6c1d18dfc0e8fc 100644
+--- a/net/minecraft/server/level/ServerPlayer.java
++++ b/net/minecraft/server/level/ServerPlayer.java
+@@ -541,16 +541,23 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+ 
+     // Paper start - Expand PlayerGameModeChangeEvent
+     private void loadGameTypes(ValueInput input) {
++        setGameModeForPlayer: // Magconch - keep player abilities
+         if (this.server.getForcedGameType() != null && this.server.getForcedGameType() != readPlayerMode(input, "playerGameType")) {
+             if (new org.bukkit.event.player.PlayerGameModeChangeEvent(this.getBukkitEntity(), org.bukkit.GameMode.getByValue(this.server.getDefaultGameType().getId()), org.bukkit.event.player.PlayerGameModeChangeEvent.Cause.DEFAULT_GAMEMODE, null).callEvent()) {
+-                this.gameMode.setGameModeForPlayer(this.server.getForcedGameType(), GameType.DEFAULT_MODE);
++                this.gameMode.setGameModeForPlayer(this.server.getForcedGameType(), readPlayerMode(input, "previousPlayerGameType"), true); // Magconch - keep player abilities
+             } else {
+-                this.gameMode.setGameModeForPlayer(readPlayerMode(input, "playerGameType"), readPlayerMode(input, "previousPlayerGameType"));
++                // Magconch start - keep player abilities
++                break setGameModeForPlayer;
++                // Magconch end - keep player abilities
+             }
+             return;
+         }
+-        this.gameMode
+-            .setGameModeForPlayer(this.calculateGameModeForNewPlayer(readPlayerMode(input, "playerGameType")), readPlayerMode(input, "previousPlayerGameType"));
++        // Magconch start - keep player abilities
++        GameType gameMode = readPlayerMode(input, "playerGameType");
++        GameType calculateGameMode = this.calculateGameModeForNewPlayer(gameMode);
++        boolean updateAbilities = gameMode != calculateGameMode;
++        this.gameMode.setGameModeForPlayer(calculateGameMode, readPlayerMode(input, "previousPlayerGameType"), updateAbilities);
++        // Magconch end - keep player abilities
+     }
+     // Paper end - Expand PlayerGameModeChangeEvent
+ 
+@@ -2231,8 +2238,11 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+     public void restoreFrom(final ServerPlayer oldPlayer, final boolean restoreAll) {
+         this.wardenSpawnTracker = oldPlayer.wardenSpawnTracker;
+         this.chatSession = oldPlayer.chatSession;
+-        this.gameMode.setGameModeForPlayer(oldPlayer.gameMode.getGameModeForPlayer(), oldPlayer.gameMode.getPreviousGameModeForPlayer());
+-        this.onUpdateAbilities();
++        // Magconch start - keep player abilities
++        this.gameMode.setGameModeForPlayer(oldPlayer.gameMode.getGameModeForPlayer(), oldPlayer.gameMode.getPreviousGameModeForPlayer(), false);
++        this.getAbilities().restoreFrom(oldPlayer.getAbilities());
++        // this.onUpdateAbilities();
++        // Magconch end - keep player abilities
+         this.getAttributes().assignBaseValues(oldPlayer.getAttributes());
+         this.tpsBar = oldPlayer.tpsBar; // magconch - tpsbar
+         if (restoreAll) {
+diff --git a/net/minecraft/server/level/ServerPlayerGameMode.java b/net/minecraft/server/level/ServerPlayerGameMode.java
+index 81487e9840845de76f58e83cc57b173b5945bab4..2ca365b5b37183571809b47f76dd9d1e038ab0d5 100644
+--- a/net/minecraft/server/level/ServerPlayerGameMode.java
++++ b/net/minecraft/server/level/ServerPlayerGameMode.java
+@@ -85,7 +85,7 @@ public class ServerPlayerGameMode {
+         }
+         // CraftBukkit end
+         Abilities abilities = this.player.getAbilities();
+-        this.setGameModeForPlayer(gameModeForPlayer, this.gameModeForPlayer);
++        this.setGameModeForPlayer(gameModeForPlayer, this.gameModeForPlayer, true); // Magconch - keep player abilities
+         if (abilities.flying && gameModeForPlayer != GameType.SPECTATOR && this.isInRangeOfGround()) {
+             abilities.flying = false;
+         }
+@@ -104,11 +104,37 @@ public class ServerPlayerGameMode {
+     }
+ 
+     protected void setGameModeForPlayer(final GameType gameModeForPlayer, final @Nullable GameType previousGameModeForPlayer) {
++        // Magconch start - keep player abilities
++        this.setGameModeForPlayer(gameModeForPlayer, previousGameModeForPlayer, true);
++    }
++
++    protected void setGameModeForPlayer(final GameType gameModeForPlayer, final @Nullable GameType previousGameModeForPlayer, final boolean updateAbilities) {
+         this.previousGameModeForPlayer = previousGameModeForPlayer;
+         this.gameModeForPlayer = gameModeForPlayer;
+-        Abilities abilities = this.player.getAbilities();
+-        gameModeForPlayer.updatePlayerAbilities(abilities);
++        if (updateAbilities) {
++            Abilities abilities = this.player.getAbilities();
++            gameModeForPlayer.updatePlayerAbilities(abilities);
++        }
++    }
++
++    public void checkFlying() {
++        if (this.player.getAbilities().flying && this.gameModeForPlayer != GameType.SPECTATOR) {
++            net.minecraft.world.phys.AABB boundingBox = this.player.getBoundingBox();
++            boundingBox = new net.minecraft.world.phys.AABB(
++                boundingBox.minX,
++                boundingBox.minY - 1.0E-5,
++                boundingBox.minZ,
++                boundingBox.maxX,
++                boundingBox.minY,
++                boundingBox.maxZ
++            );
++            if (!this.player.level().noCollision(this.player, boundingBox)) {
++                this.player.getAbilities().flying = false;
++                this.player.onUpdateAbilities();
++            }
++        }
+     }
++    // Magconch end - keep player abilities
+ 
+     private boolean isInRangeOfGround() {
+         List<VoxelShape> clipping = Entity.collectAllColliders(this.player, this.level, this.player.getBoundingBox());
+diff --git a/net/minecraft/server/network/ServerGamePacketListenerImpl.java b/net/minecraft/server/network/ServerGamePacketListenerImpl.java
+index ee455011ff5d35466c1ee2f720c03ecef8d5237a..865b7f50c57a9388406d2d8da7a7bbff7825fb07 100644
+--- a/net/minecraft/server/network/ServerGamePacketListenerImpl.java
++++ b/net/minecraft/server/network/ServerGamePacketListenerImpl.java
+@@ -1979,6 +1979,7 @@ public class ServerGamePacketListenerImpl
+         }
+ 
+         this.player.teleportSetPosition(destination, relatives);
++        this.player.gameMode.checkFlying(); // Magconch - keep player abilities
+         this.awaitingPositionFromClient = this.player.position();
+         // CraftBukkit start - update last location
+         this.lastPosX = this.awaitingPositionFromClient.x;
+diff --git a/net/minecraft/world/entity/player/Abilities.java b/net/minecraft/world/entity/player/Abilities.java
+index 71c63c5eabb9a4214033562ef2fdc0a0d2243f30..849b01be1a0e6b13aa231ddffc439169204674a9 100644
+--- a/net/minecraft/world/entity/player/Abilities.java
++++ b/net/minecraft/world/entity/player/Abilities.java
+@@ -24,6 +24,18 @@ public class Abilities {
+         return this.flyingSpeed;
+     }
+ 
++    // Magconch start - keep player abilities
++    public void restoreFrom(final Abilities that) {
++        this.invulnerable = that.invulnerable;
++        this.flying = that.flying;
++        this.mayfly = that.mayfly;
++        this.instabuild = that.instabuild;
++        this.mayBuild = that.mayBuild;
++        this.flyingSpeed = that.flyingSpeed;
++        this.walkingSpeed = that.walkingSpeed;
++    }
++    // Magconch end - keep player abilities
++
+     public void setFlyingSpeed(final float value) {
+         this.flyingSpeed = value;
+     }
