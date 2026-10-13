@@ -1,0 +1,884 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Tue, 13 Oct 2026 12:42:11 +0800
+Subject: [PATCH] Default max stack size
+
+
+diff --git a/net/minecraft/core/cauldron/CauldronInteractions.java b/net/minecraft/core/cauldron/CauldronInteractions.java
+index 80b4905bc7b9c67a0d4355e5de3b3cdb46fcb061..91e6c45b9777afb17cb644cb0d325d22efb3d741 100644
+--- a/net/minecraft/core/cauldron/CauldronInteractions.java
++++ b/net/minecraft/core/cauldron/CauldronInteractions.java
+@@ -364,7 +364,9 @@ public class CauldronInteractions {
+                 return InteractionResult.SUCCESS;
+             }
+             // CraftBukkit end
+-            itemInHand.remove(DataComponents.DYED_COLOR);
++            ItemStack cleanedItem = itemInHand.copyWithCount(1);
++            cleanedItem.remove(DataComponents.DYED_COLOR);
++            player.setItemInHand(hand, ItemUtils.createFilledResult(itemInHand, player, cleanedItem, false));
+             player.awardStat(Stats.CLEAN_ARMOR);
+             // LayeredCauldronBlock.lowerFillLevel(state, level, pos); // CraftBukkit
+         }
+diff --git a/net/minecraft/network/HashedStack.java b/net/minecraft/network/HashedStack.java
+index 6cff7159f20ceac958f133b5eb03b74495eee242..5e7d56e774a4c48d2ea90033e417467321218259 100644
+--- a/net/minecraft/network/HashedStack.java
++++ b/net/minecraft/network/HashedStack.java
+@@ -50,7 +50,7 @@ public interface HashedStack {
+         public boolean matches(final ItemStack itemStack, final HashedPatchMap.HashGenerator hasher) {
+             return this.count == itemStack.getCount()
+                 && this.item.equals(itemStack.typeHolder())
+-                && this.components.matches(itemStack.getComponentsPatch(), hasher);
++                && this.components.matches(itemStack.getRemoteComponentsPatch(), hasher); // magconch - customize default components
+         }
+     }
+ }
+diff --git a/net/minecraft/world/item/Item.java b/net/minecraft/world/item/Item.java
+index a7af8281807835ade90a5ed798e903dabe74744c..77e41ec06e31b77e4e6947f898362e452287af03 100644
+--- a/net/minecraft/world/item/Item.java
++++ b/net/minecraft/world/item/Item.java
+@@ -129,6 +129,7 @@ public class Item implements ItemLike, FeatureElement {
+     public static final int MAX_BAR_WIDTH = 13;
+     protected static final int APPROXIMATELY_INFINITE_USE_DURATION = 72000;
+     private final Holder.Reference<Item> builtInRegistryHolder = BuiltInRegistries.ITEM.createIntrusiveHolder(this);
++    private final net.minecraft.core.component.DataComponentPatch componentsPatchRemote; // magconch - customize default components
+     private final @Nullable ItemStackTemplate craftingRemainingItem;
+     protected final String descriptionId;
+     private final FeatureFlagSet requiredFeatures;
+@@ -152,6 +153,7 @@ public class Item implements ItemLike, FeatureElement {
+             Component.translatable(this.descriptionId), properties.effectiveModel()
+         );
+         BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.add(properties.itemIdOrThrow(), componentInitializer);
++        this.componentsPatchRemote = properties.componentsPatchRemote.build(); // magconch - customize default components
+         this.craftingRemainingItem = properties.craftingRemainingItem;
+         this.requiredFeatures = properties.requiredFeatures;
+         if (SharedConstants.IS_RUNNING_IN_IDE) {
+@@ -171,6 +173,12 @@ public class Item implements ItemLike, FeatureElement {
+         return this.builtInRegistryHolder.components();
+     }
+ 
++    // magconch start - customize default components
++    public net.minecraft.core.component.DataComponentPatch componentsPatchRemote() {
++        return this.componentsPatchRemote;
++    }
++    // magconch end - customize default components
++
+     public int getDefaultMaxStackSize() {
+         return this.components().getOrDefault(DataComponents.MAX_STACK_SIZE, 1);
+     }
+@@ -401,10 +409,18 @@ public class Item implements ItemLike, FeatureElement {
+         private @Nullable ResourceKey<Item> id;
+         private DependantName<Item, String> descriptionId = ITEM_DESCRIPTION_ID;
+         private final DependantName<Item, Identifier> model = ResourceKey::identifier;
+-        // magconch start - food lore
++        // magconch start - customize default components
++        private boolean initCustomize = false;
++        private final net.minecraft.core.component.DataComponentPatch.Builder componentsPatchRemote = net.minecraft.core.component.DataComponentPatch.builder();
+         private final java.util.List<Component> beforeLores = new java.util.ArrayList<>();
+         private final java.util.List<Component> afterLores = new java.util.ArrayList<>();
+ 
++        public Item.Properties initCustomize() {
++            this.initCustomize = true;
++            return this;
++        }
++        // magconch end - customize default components
++
+         public Item.Properties loreBefore(final Component component) {
+             this.beforeLores.add(component);
+             return this;
+@@ -653,7 +669,7 @@ public class Item implements ItemLike, FeatureElement {
+                         .setShearingSound(SoundEvents.HORSE_ARMOR_UNEQUIP)
+                         .build()
+                 )
+-                .stacksTo(1);
++                .initCustomize().stacksTo(64); // magconch - default max stack size
+         }
+ 
+         public Item.Properties nautilusArmor(final ArmorMaterial material) {
+@@ -737,6 +753,11 @@ public class Item implements ItemLike, FeatureElement {
+         }
+ 
+         public <T> Item.Properties component(final DataComponentType<T> type, final T value) {
++            // magconch start - customize default components
++            if (this.initCustomize && !DataComponents.UNABLE_SEND_TO_CLIENT.contains(type)) {
++                this.componentsPatchRemote.set(type, value);
++            }
++            // magconch end - customize default components
+             this.componentInitializer = this.componentInitializer.add(type, value);
+             return this;
+         }
+diff --git a/net/minecraft/world/item/ItemStack.java b/net/minecraft/world/item/ItemStack.java
+index 400e257d6842791c9dd754a687a19db961c8dd4f..2f0f3a693a028a1dced1c852e8a46c4f9d4b4250 100644
+--- a/net/minecraft/world/item/ItemStack.java
++++ b/net/minecraft/world/item/ItemStack.java
+@@ -262,6 +262,7 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+     public DataComponentPatch getRemoteComponentsPatch() {
+         if (!this.isEmpty()) {
+             DataComponentPatch.Builder builder = DataComponentPatch.builder();
++            builder.copy(this.getItem().componentsPatchRemote());
+ 
+             boolean changed = false;
+             DataComponentPatch patch = this.components.asPatch();
+diff --git a/net/minecraft/world/item/Items.java b/net/minecraft/world/item/Items.java
+index cb6d984da2188c68df45a71b6004c30582023f98..48e7dd118900b407920bc4491e2bac7d53f02481 100644
+--- a/net/minecraft/world/item/Items.java
++++ b/net/minecraft/world/item/Items.java
+@@ -1469,22 +1469,22 @@ public class Items {
+     public static final Item DETECTOR_RAIL = registerBlock(BlockItemIds.DETECTOR_RAIL, Blocks.DETECTOR_RAIL);
+     public static final Item RAIL = registerBlock(BlockItemIds.RAIL, Blocks.RAIL);
+     public static final Item ACTIVATOR_RAIL = registerBlock(BlockItemIds.ACTIVATOR_RAIL, Blocks.ACTIVATOR_RAIL);
+-    public static final Item SADDLE = registerItem(ItemIds.SADDLE, new Item.Properties().stacksTo(1).component(DataComponents.EQUIPPABLE, Equippable.saddle()));
++    public static final Item SADDLE = registerItem(ItemIds.SADDLE, new Item.Properties().initCustomize().stacksTo(64).component(DataComponents.EQUIPPABLE, Equippable.saddle())); // magconch - default max stack size
+     public static final ColorCollection<Item> HARNESS = ColorCollection.registerItems(
+         ItemIds.HARNESS, (name, color) -> registerItem(name, new Item.Properties().stacksTo(1).component(DataComponents.EQUIPPABLE, Equippable.harness(color)))
+     );
+-    public static final Item MINECART = registerItem(ItemIds.MINECART, p -> new MinecartItem(EntityTypes.MINECART, p), new Item.Properties().stacksTo(1));
++    public static final Item MINECART = registerItem(ItemIds.MINECART, p -> new MinecartItem(EntityTypes.MINECART, p), new Item.Properties().initCustomize().stacksTo(64)); // magconch - default max stack size
+     public static final Item CHEST_MINECART = registerItem(
+-        ItemIds.CHEST_MINECART, p -> new MinecartItem(EntityTypes.CHEST_MINECART, p), new Item.Properties().stacksTo(1)
++        ItemIds.CHEST_MINECART, p -> new MinecartItem(EntityTypes.CHEST_MINECART, p), new Item.Properties().initCustomize().stacksTo(64) // magconch - default max stack size
+     );
+     public static final Item FURNACE_MINECART = registerItem(
+-        ItemIds.FURNACE_MINECART, p -> new MinecartItem(EntityTypes.FURNACE_MINECART, p), new Item.Properties().stacksTo(1)
++        ItemIds.FURNACE_MINECART, p -> new MinecartItem(EntityTypes.FURNACE_MINECART, p), new Item.Properties().initCustomize().stacksTo(64) // magconch - default max stack size
+     );
+     public static final Item TNT_MINECART = registerItem(
+-        ItemIds.TNT_MINECART, p -> new MinecartItem(EntityTypes.TNT_MINECART, p), new Item.Properties().stacksTo(1)
++        ItemIds.TNT_MINECART, p -> new MinecartItem(EntityTypes.TNT_MINECART, p), new Item.Properties().initCustomize().stacksTo(64) // magconch - default max stack size
+     );
+     public static final Item HOPPER_MINECART = registerItem(
+-        ItemIds.HOPPER_MINECART, p -> new MinecartItem(EntityTypes.HOPPER_MINECART, p), new Item.Properties().stacksTo(1)
++        ItemIds.HOPPER_MINECART, p -> new MinecartItem(EntityTypes.HOPPER_MINECART, p), new Item.Properties().initCustomize().stacksTo(64) // magconch - default max stack size
+     );
+     public static final Item CARROT_ON_A_STICK = registerItem(
+         ItemIds.CARROT_ON_A_STICK, p -> new FoodOnAStickItem<>(EntityTypes.PIG, 7, p), new Item.Properties().durability(25)
+@@ -1510,110 +1510,110 @@ public class Items {
+             .repairable(PHANTOM_MEMBRANE)
+     );
+     public static final Item OAK_BOAT = registerItem(
+-        ItemIds.OAK_BOAT, p -> new BoatItem(EntityTypes.OAK_BOAT, p), new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        ItemIds.OAK_BOAT, p -> new BoatItem(EntityTypes.OAK_BOAT, p), new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item OAK_CHEST_BOAT = registerItem(
+         ItemIds.OAK_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.OAK_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item SPRUCE_BOAT = registerItem(
+         ItemIds.SPRUCE_BOAT,
+         p -> new BoatItem(EntityTypes.SPRUCE_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item SPRUCE_CHEST_BOAT = registerItem(
+         ItemIds.SPRUCE_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.SPRUCE_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item BIRCH_BOAT = registerItem(
+-        ItemIds.BIRCH_BOAT, p -> new BoatItem(EntityTypes.BIRCH_BOAT, p), new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        ItemIds.BIRCH_BOAT, p -> new BoatItem(EntityTypes.BIRCH_BOAT, p), new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item BIRCH_CHEST_BOAT = registerItem(
+         ItemIds.BIRCH_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.BIRCH_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item JUNGLE_BOAT = registerItem(
+         ItemIds.JUNGLE_BOAT,
+         p -> new BoatItem(EntityTypes.JUNGLE_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item JUNGLE_CHEST_BOAT = registerItem(
+         ItemIds.JUNGLE_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.JUNGLE_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item ACACIA_BOAT = registerItem(
+         ItemIds.ACACIA_BOAT,
+         p -> new BoatItem(EntityTypes.ACACIA_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item ACACIA_CHEST_BOAT = registerItem(
+         ItemIds.ACACIA_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.ACACIA_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item CHERRY_BOAT = registerItem(
+         ItemIds.CHERRY_BOAT,
+         p -> new BoatItem(EntityTypes.CHERRY_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item CHERRY_CHEST_BOAT = registerItem(
+         ItemIds.CHERRY_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.CHERRY_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item DARK_OAK_BOAT = registerItem(
+         ItemIds.DARK_OAK_BOAT,
+         p -> new BoatItem(EntityTypes.DARK_OAK_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item DARK_OAK_CHEST_BOAT = registerItem(
+         ItemIds.DARK_OAK_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.DARK_OAK_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item PALE_OAK_BOAT = registerItem(
+         ItemIds.PALE_OAK_BOAT,
+         p -> new BoatItem(EntityTypes.PALE_OAK_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item PALE_OAK_CHEST_BOAT = registerItem(
+         ItemIds.PALE_OAK_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.PALE_OAK_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item MANGROVE_BOAT = registerItem(
+         ItemIds.MANGROVE_BOAT,
+         p -> new BoatItem(EntityTypes.MANGROVE_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item MANGROVE_CHEST_BOAT = registerItem(
+         ItemIds.MANGROVE_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.MANGROVE_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item POPLAR_BOAT = registerItem(
+         ItemIds.POPLAR_BOAT,
+         p -> new BoatItem(EntityTypes.POPLAR_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item POPLAR_CHEST_BOAT = registerItem(
+         ItemIds.POPLAR_CHEST_BOAT,
+         p -> new BoatItem(EntityTypes.POPLAR_CHEST_BOAT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item BAMBOO_RAFT = registerItem(
+         ItemIds.BAMBOO_RAFT,
+         p -> new BoatItem(EntityTypes.BAMBOO_RAFT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item BAMBOO_CHEST_RAFT = registerItem(
+         ItemIds.BAMBOO_CHEST_RAFT,
+         p -> new BoatItem(EntityTypes.BAMBOO_CHEST_RAFT, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).stacksTo(1)
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BOATS).initCustomize().stacksTo(64)
+     );
+     public static final Item STRUCTURE_BLOCK = registerBlock(
+         BlockItemIds.STRUCTURE_BLOCK, Blocks.STRUCTURE_BLOCK, GameMasterBlockItem::new, new Item.Properties().rarity(Rarity.EPIC)
+@@ -1713,7 +1713,7 @@ public class Items {
+     public static final Item NETHERITE_HOE = registerItem(ItemIds.NETHERITE_HOE, new Item.Properties().hoe(ToolMaterial.NETHERITE, -4.0F, 0.0F).fireResistant());
+     public static final Item STICK = registerItem(ItemIds.STICK, new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_DRY_PLANTS));
+     public static final Item MUSHROOM_STEW = registerItem(
+-        ItemIds.MUSHROOM_STEW, new Item.Properties().stacksTo(1).food(Foods.MUSHROOM_STEW).usingConvertsTo(BOWL)
++        ItemIds.MUSHROOM_STEW, new Item.Properties().initCustomize().stacksTo(64).food(Foods.MUSHROOM_STEW).usingConvertsTo(BOWL) // magconch - default max stack size
+     );
+     public static final Item STRING = registerItem(BlockItemIds.TRIPWIRE, createBlockItemWithCustomItemName(Blocks.TRIPWIRE));
+     public static final Item FEATHER = registerItem(ItemIds.FEATHER);
+@@ -1807,177 +1807,177 @@ public class Items {
+         BlockItemIds.OAK_SIGN,
+         Blocks.OAK_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.OAK_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item SPRUCE_SIGN = registerBlock(
+         BlockItemIds.SPRUCE_SIGN,
+         Blocks.SPRUCE_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.SPRUCE_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item BIRCH_SIGN = registerBlock(
+         BlockItemIds.BIRCH_SIGN,
+         Blocks.BIRCH_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.BIRCH_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item JUNGLE_SIGN = registerBlock(
+         BlockItemIds.JUNGLE_SIGN,
+         Blocks.JUNGLE_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.JUNGLE_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item ACACIA_SIGN = registerBlock(
+         BlockItemIds.ACACIA_SIGN,
+         Blocks.ACACIA_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.ACACIA_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item CHERRY_SIGN = registerBlock(
+         BlockItemIds.CHERRY_SIGN,
+         Blocks.CHERRY_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.CHERRY_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item DARK_OAK_SIGN = registerBlock(
+         BlockItemIds.DARK_OAK_SIGN,
+         Blocks.DARK_OAK_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.DARK_OAK_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item PALE_OAK_SIGN = registerBlock(
+         BlockItemIds.PALE_OAK_SIGN,
+         Blocks.PALE_OAK_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.PALE_OAK_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item MANGROVE_SIGN = registerBlock(
+         BlockItemIds.MANGROVE_SIGN,
+         Blocks.MANGROVE_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.MANGROVE_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item POPLAR_SIGN = registerBlock(
+         BlockItemIds.POPLAR_SIGN,
+         Blocks.POPLAR_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.POPLAR_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item BAMBOO_SIGN = registerBlock(
+         BlockItemIds.BAMBOO_SIGN,
+         Blocks.BAMBOO_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.BAMBOO_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_LARGE).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item CRIMSON_SIGN = registerBlock(
+         BlockItemIds.CRIMSON_SIGN,
+         Blocks.CRIMSON_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.CRIMSON_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().stacksTo(16).signText()
++        new Item.Properties().initCustomize().stacksTo(64).signText()
+     );
+     public static final Item WARPED_SIGN = registerBlock(
+         BlockItemIds.WARPED_SIGN,
+         Blocks.WARPED_SIGN,
+         (b, p) -> new StandingAndWallBlockItem(b, Blocks.WARPED_WALL_SIGN, Direction.DOWN, p),
+-        new Item.Properties().stacksTo(16).signText()
++        new Item.Properties().initCustomize().stacksTo(64).signText()
+     );
+     public static final Item OAK_HANGING_SIGN = registerBlock(
+         BlockItemIds.OAK_HANGING_SIGN,
+         Blocks.OAK_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.OAK_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item SPRUCE_HANGING_SIGN = registerBlock(
+         BlockItemIds.SPRUCE_HANGING_SIGN,
+         Blocks.SPRUCE_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.SPRUCE_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item BIRCH_HANGING_SIGN = registerBlock(
+         BlockItemIds.BIRCH_HANGING_SIGN,
+         Blocks.BIRCH_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.BIRCH_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item JUNGLE_HANGING_SIGN = registerBlock(
+         BlockItemIds.JUNGLE_HANGING_SIGN,
+         Blocks.JUNGLE_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.JUNGLE_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item ACACIA_HANGING_SIGN = registerBlock(
+         BlockItemIds.ACACIA_HANGING_SIGN,
+         Blocks.ACACIA_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.ACACIA_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item CHERRY_HANGING_SIGN = registerBlock(
+         BlockItemIds.CHERRY_HANGING_SIGN,
+         Blocks.CHERRY_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.CHERRY_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item DARK_OAK_HANGING_SIGN = registerBlock(
+         BlockItemIds.DARK_OAK_HANGING_SIGN,
+         Blocks.DARK_OAK_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.DARK_OAK_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item PALE_OAK_HANGING_SIGN = registerBlock(
+         BlockItemIds.PALE_OAK_HANGING_SIGN,
+         Blocks.PALE_OAK_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.PALE_OAK_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item MANGROVE_HANGING_SIGN = registerBlock(
+         BlockItemIds.MANGROVE_HANGING_SIGN,
+         Blocks.MANGROVE_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.MANGROVE_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item POPLAR_HANGING_SIGN = registerBlock(
+         BlockItemIds.POPLAR_HANGING_SIGN,
+         Blocks.POPLAR_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.POPLAR_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item BAMBOO_HANGING_SIGN = registerBlock(
+         BlockItemIds.BAMBOO_HANGING_SIGN,
+         Blocks.BAMBOO_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.BAMBOO_WALL_HANGING_SIGN, p),
+-        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).stacksTo(16).signText()
++        new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_HANGING_SIGNS).initCustomize().stacksTo(64).signText()
+     );
+     public static final Item CRIMSON_HANGING_SIGN = registerBlock(
+         BlockItemIds.CRIMSON_HANGING_SIGN,
+         Blocks.CRIMSON_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.CRIMSON_WALL_HANGING_SIGN, p),
+-        new Item.Properties().stacksTo(16).signText()
++        new Item.Properties().initCustomize().stacksTo(64).signText()
+     );
+     public static final Item WARPED_HANGING_SIGN = registerBlock(
+         BlockItemIds.WARPED_HANGING_SIGN,
+         Blocks.WARPED_HANGING_SIGN,
+         (b, p) -> new HangingSignItem(b, Blocks.WARPED_WALL_HANGING_SIGN, p),
+-        new Item.Properties().stacksTo(16).signText()
++        new Item.Properties().initCustomize().stacksTo(64).signText()
+     );
+-    public static final Item BUCKET = registerItem(ItemIds.BUCKET, p -> new BucketItem(Fluids.EMPTY, p), new Item.Properties().stacksTo(16));
++    public static final Item BUCKET = registerItem(ItemIds.BUCKET, p -> new BucketItem(Fluids.EMPTY, p), new Item.Properties().initCustomize().stacksTo(64));
+     public static final Item WATER_BUCKET = registerItem(
+-        ItemIds.WATER_BUCKET, p -> new BucketItem(Fluids.WATER, p), new Item.Properties().craftRemainder(BUCKET).stacksTo(1)
++        ItemIds.WATER_BUCKET, p -> new BucketItem(Fluids.WATER, p), new Item.Properties().craftRemainder(BUCKET).initCustomize().stacksTo(64)
+     );
+     public static final Item LAVA_BUCKET = registerItem(
+         ItemIds.LAVA_BUCKET,
+         p -> new BucketItem(Fluids.LAVA, p),
+-        new Item.Properties().craftRemainder(BUCKET).cookingFuel(ContextIntProviders.COOKING_TIME_LAVA_BUCKET).stacksTo(1)
++        new Item.Properties().craftRemainder(BUCKET).cookingFuel(ContextIntProviders.COOKING_TIME_LAVA_BUCKET).initCustomize().stacksTo(64)
+     );
+     public static final Item POWDER_SNOW_BUCKET = registerItem(
+         BlockItemIds.POWDER_SNOW,
+         p -> new SolidBucketItem(Blocks.POWDER_SNOW, SoundEvents.BUCKET_EMPTY_POWDER_SNOW, p),
+-        new Item.Properties().stacksTo(1).useItemDescriptionPrefix()
++        new Item.Properties().initCustomize().stacksTo(64).useItemDescriptionPrefix()
+     );
+-    public static final Item SNOWBALL = registerItem(ItemIds.SNOWBALL, SnowballItem::new, new Item.Properties().stacksTo(16));
++    public static final Item SNOWBALL = registerItem(ItemIds.SNOWBALL, SnowballItem::new, new Item.Properties().initCustomize().stacksTo(64));
+     public static final Item LEATHER = registerItem(ItemIds.LEATHER);
+     public static final Item MILK_BUCKET = registerItem(
+         ItemIds.MILK_BUCKET,
+-        new Item.Properties().craftRemainder(BUCKET).component(DataComponents.CONSUMABLE, Consumables.MILK_BUCKET).usingConvertsTo(BUCKET).stacksTo(1).food(Foods.MILK_BUCKET, null)
++        new Item.Properties().craftRemainder(BUCKET).component(DataComponents.CONSUMABLE, Consumables.MILK_BUCKET).usingConvertsTo(BUCKET).initCustomize().stacksTo(64).food(Foods.MILK_BUCKET, null)
+     );
+     public static final Item PUFFERFISH_BUCKET = registerItem(
+         ItemIds.PUFFERFISH_BUCKET,
+@@ -2025,13 +2025,13 @@ public class Items {
+     public static final Item BOOK = registerItem(ItemIds.BOOK, new Item.Properties().enchantable(1));
+     public static final Item SLIME_BALL = registerItem(ItemIds.SLIME_BALL);
+     public static final Item EGG = registerItem(
+-        ItemIds.EGG, EggItem::new, new Item.Properties().stacksTo(16).delayedHolderComponent(DataComponents.CHICKEN_VARIANT, ChickenVariants.TEMPERATE)
++        ItemIds.EGG, EggItem::new, new Item.Properties().initCustomize().stacksTo(64).delayedHolderComponent(DataComponents.CHICKEN_VARIANT, ChickenVariants.TEMPERATE)
+     );
+     public static final Item BLUE_EGG = registerItem(
+-        ItemIds.BLUE_EGG, EggItem::new, new Item.Properties().stacksTo(16).delayedHolderComponent(DataComponents.CHICKEN_VARIANT, ChickenVariants.COLD)
++        ItemIds.BLUE_EGG, EggItem::new, new Item.Properties().initCustomize().stacksTo(64).delayedHolderComponent(DataComponents.CHICKEN_VARIANT, ChickenVariants.COLD)
+     );
+     public static final Item BROWN_EGG = registerItem(
+-        ItemIds.BROWN_EGG, EggItem::new, new Item.Properties().stacksTo(16).delayedHolderComponent(DataComponents.CHICKEN_VARIANT, ChickenVariants.WARM)
++        ItemIds.BROWN_EGG, EggItem::new, new Item.Properties().initCustomize().stacksTo(64).delayedHolderComponent(DataComponents.CHICKEN_VARIANT, ChickenVariants.WARM)
+     );
+     public static final Item COMPASS = registerItem(ItemIds.COMPASS, CompassItem::new);
+     public static final Item RECOVERY_COMPASS = registerItem(ItemIds.RECOVERY_COMPASS, new Item.Properties().rarity(Rarity.UNCOMMON));
+@@ -2054,7 +2054,7 @@ public class Items {
+         new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_ITEMS_SMALL).durability(64).enchantable(1)
+     );
+     public static final Item CLOCK = registerItem(ItemIds.CLOCK);
+-    public static final Item SPYGLASS = registerItem(ItemIds.SPYGLASS, SpyglassItem::new, new Item.Properties().stacksTo(1));
++    public static final Item SPYGLASS = registerItem(ItemIds.SPYGLASS, SpyglassItem::new, new Item.Properties().initCustomize().stacksTo(64));
+     public static final Item GLOWSTONE_DUST = registerItem(ItemIds.GLOWSTONE_DUST);
+     public static final Item COD = registerItem(ItemIds.COD, new Item.Properties().food(Foods.COD));
+     public static final Item SALMON = registerItem(ItemIds.SALMON, new Item.Properties().food(Foods.SALMON));
+@@ -2074,13 +2074,13 @@ public class Items {
+     public static final Item BONE = registerItem(ItemIds.BONE);
+     public static final Item SUGAR = registerItem(ItemIds.SUGAR);
+     public static final Item CAKE = registerBlock(
+-        BlockItemIds.CAKE, Blocks.CAKE, new Item.Properties().stacksTo(1).compostable(ContextIntProviders.COMPOSTABLE_ALWAYS_ADD_ONE)
++        BlockItemIds.CAKE, Blocks.CAKE, new Item.Properties().initCustomize().stacksTo(64).compostable(ContextIntProviders.COMPOSTABLE_ALWAYS_ADD_ONE)
+     );
+     public static final ColorCollection<Item> BED = ColorCollection.registerBlockItems(
+-        BlockItemIds.BED, Blocks.BED, (id, block, var2) -> registerBlock(id, block, new Item.Properties().stacksTo(1))
++        BlockItemIds.BED, Blocks.BED, (id, block, var2) -> registerBlock(id, block, new Item.Properties().initCustomize().stacksTo(64))
+     );
+     public static final Item STRAW_BED = registerBlock(
+-        BlockItemIds.STRAW_BED, Blocks.STRAW_BED, new Item.Properties().stacksTo(16).compostable(ContextIntProviders.COMPOSTABLE_MEDIUM_HIGH)
++        BlockItemIds.STRAW_BED, Blocks.STRAW_BED, new Item.Properties().initCustomize().stacksTo(64).compostable(ContextIntProviders.COMPOSTABLE_MEDIUM_HIGH)
+     );
+     public static final Item COOKIE = registerItem(
+         ItemIds.COOKIE, new Item.Properties().food(Foods.COOKIE).compostable(ContextIntProviders.COMPOSTABLE_MEDIUM_HIGH)
+@@ -2129,7 +2129,7 @@ public class Items {
+     public static final Item CHICKEN = registerItem(ItemIds.CHICKEN, new Item.Properties().food(Foods.CHICKEN, Consumables.CHICKEN));
+     public static final Item COOKED_CHICKEN = registerItem(ItemIds.COOKED_CHICKEN, new Item.Properties().food(Foods.COOKED_CHICKEN));
+     public static final Item ROTTEN_FLESH = registerItem(ItemIds.ROTTEN_FLESH, new Item.Properties().food(Foods.ROTTEN_FLESH, Consumables.ROTTEN_FLESH));
+-    public static final Item ENDER_PEARL = registerItem(ItemIds.ENDER_PEARL, EnderpearlItem::new, new Item.Properties().stacksTo(16).useCooldown(1.0F));
++    public static final Item ENDER_PEARL = registerItem(ItemIds.ENDER_PEARL, EnderpearlItem::new, new Item.Properties().initCustomize().stacksTo(64).useCooldown(1.0F));
+     public static final Item BLAZE_ROD = registerItem(ItemIds.BLAZE_ROD, new Item.Properties().cookingFuel(ContextIntProviders.COOKING_TIME_BLAZE_ROD));
+     public static final Item GHAST_TEAR = registerItem(ItemIds.GHAST_TEAR);
+     public static final Item GOLD_NUGGET = registerItem(ItemIds.GOLD_NUGGET);
+@@ -2143,7 +2143,7 @@ public class Items {
+         ItemIds.POTION,
+         PotionItem::new,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .component(DataComponents.POTION_CONTENTS, PotionContents.EMPTY)
+             .component(DataComponents.CONSUMABLE, Consumables.DEFAULT_DRINK)
+             .usingConvertsTo(GLASS_BOTTLE)
+@@ -2259,7 +2259,7 @@ public class Items {
+     public static final Item WRITABLE_BOOK = registerItem(
+         ItemIds.WRITABLE_BOOK,
+         WritableBookItem::new,
+-        new Item.Properties().stacksTo(1).component(DataComponents.WRITABLE_BOOK_CONTENT, WritableBookContent.EMPTY)
++        new Item.Properties().initCustomize().stacksTo(64).component(DataComponents.WRITABLE_BOOK_CONTENT, WritableBookContent.EMPTY)
+     );
+     public static final Item WRITTEN_BOOK = registerItem(
+         ItemIds.WRITTEN_BOOK, WrittenBookItem::new, new Item.Properties().stacksTo(16).component(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)
+@@ -2371,10 +2371,10 @@ public class Items {
+     public static final Item PRISMARINE_CRYSTALS = registerItem(ItemIds.PRISMARINE_CRYSTALS);
+     public static final Item RABBIT = registerItem(ItemIds.RABBIT, new Item.Properties().food(Foods.RABBIT));
+     public static final Item COOKED_RABBIT = registerItem(ItemIds.COOKED_RABBIT, new Item.Properties().food(Foods.COOKED_RABBIT));
+-    public static final Item RABBIT_STEW = registerItem(ItemIds.RABBIT_STEW, new Item.Properties().stacksTo(1).food(Foods.RABBIT_STEW).usingConvertsTo(BOWL));
++    public static final Item RABBIT_STEW = registerItem(ItemIds.RABBIT_STEW, new Item.Properties().initCustomize().stacksTo(64).food(Foods.RABBIT_STEW).usingConvertsTo(BOWL));
+     public static final Item RABBIT_FOOT = registerItem(ItemIds.RABBIT_FOOT);
+     public static final Item RABBIT_HIDE = registerItem(ItemIds.RABBIT_HIDE);
+-    public static final Item ARMOR_STAND = registerItem(ItemIds.ARMOR_STAND, ArmorStandItem::new, new Item.Properties().stacksTo(16));
++    public static final Item ARMOR_STAND = registerItem(ItemIds.ARMOR_STAND, ArmorStandItem::new, new Item.Properties().initCustomize().stacksTo(64));
+     public static final Item COPPER_HORSE_ARMOR = registerItem(ItemIds.COPPER_HORSE_ARMOR, new Item.Properties().horseArmor(ArmorMaterials.COPPER));
+     public static final Item IRON_HORSE_ARMOR = registerItem(ItemIds.IRON_HORSE_ARMOR, new Item.Properties().horseArmor(ArmorMaterials.IRON));
+     public static final Item GOLDEN_HORSE_ARMOR = registerItem(ItemIds.GOLDEN_HORSE_ARMOR, new Item.Properties().horseArmor(ArmorMaterials.GOLD));
+@@ -2399,7 +2399,7 @@ public class Items {
+             (b, p) -> new BannerItem(b, Blocks.WALL_BANNER.pick(color), p),
+             new Item.Properties()
+                 .cookingFuel(ContextIntProviders.COOKING_TIME_WOOD_BLOCKS)
+-                .stacksTo(16)
++                .initCustomize().stacksTo(64)
+                 .component(DataComponents.BANNER_PATTERNS, BannerPatternLayers.EMPTY)
+         )
+     );
+@@ -2427,11 +2427,11 @@ public class Items {
+         BlockItemIds.BEETROOT_CROP, createBlockItemWithCustomItemName(Blocks.BEETROOTS), new Item.Properties().compostable(ContextIntProviders.COMPOSTABLE_LOW)
+     );
+     public static final Item BEETROOT_SOUP = registerItem(
+-        ItemIds.BEETROOT_SOUP, new Item.Properties().stacksTo(1).food(Foods.BEETROOT_SOUP).usingConvertsTo(BOWL)
++        ItemIds.BEETROOT_SOUP, new Item.Properties().initCustomize().stacksTo(64).food(Foods.BEETROOT_SOUP).usingConvertsTo(BOWL)
+     );
+     public static final Item DRAGON_BREATH = registerItem(ItemIds.DRAGON_BREATH, new Item.Properties().craftRemainder(GLASS_BOTTLE).rarity(Rarity.UNCOMMON));
+     public static final Item SPLASH_POTION = registerItem(
+-        ItemIds.SPLASH_POTION, SplashPotionItem::new, new Item.Properties().stacksTo(1).component(DataComponents.POTION_CONTENTS, PotionContents.EMPTY)
++        ItemIds.SPLASH_POTION, SplashPotionItem::new, new Item.Properties().initCustomize().stacksTo(64).component(DataComponents.POTION_CONTENTS, PotionContents.EMPTY)
+     );
+     public static final Item SPECTRAL_ARROW = registerItem(ItemIds.SPECTRAL_ARROW, SpectralArrowItem::new);
+     public static final Item TIPPED_ARROW = registerItem(
+@@ -2443,7 +2443,7 @@ public class Items {
+         ItemIds.LINGERING_POTION,
+         LingeringPotionItem::new,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .component(DataComponents.POTION_CONTENTS, PotionContents.EMPTY)
+             .component(DataComponents.POTION_DURATION_SCALE, 0.25F)
+     );
+@@ -2495,7 +2495,7 @@ public class Items {
+     );
+     public static final Item TOTEM_OF_UNDYING = registerItem(
+         ItemIds.TOTEM_OF_UNDYING,
+-        new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).component(DataComponents.DEATH_PROTECTION, DeathProtection.TOTEM_OF_UNDYING)
++        new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).component(DataComponents.DEATH_PROTECTION, DeathProtection.TOTEM_OF_UNDYING)
+     );
+     public static final Item SHULKER_SHELL = registerItem(ItemIds.SHULKER_SHELL);
+     public static final Item IRON_NUGGET = registerItem(ItemIds.IRON_NUGGET);
+@@ -2513,70 +2513,70 @@ public class Items {
+             .component(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)
+     );
+     public static final Item MUSIC_DISC_13 = registerItem(
+-        ItemIds.MUSIC_DISC_13, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.THIRTEEN)
++        ItemIds.MUSIC_DISC_13, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.THIRTEEN)
+     );
+     public static final Item MUSIC_DISC_CAT = registerItem(
+-        ItemIds.MUSIC_DISC_CAT, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.CAT)
++        ItemIds.MUSIC_DISC_CAT, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.CAT)
+     );
+     public static final Item MUSIC_DISC_BLOCKS = registerItem(
+-        ItemIds.MUSIC_DISC_BLOCKS, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.BLOCKS)
++        ItemIds.MUSIC_DISC_BLOCKS, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.BLOCKS)
+     );
+     public static final Item MUSIC_DISC_BOUNCE = registerItem(
+-        ItemIds.MUSIC_DISC_BOUNCE, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.BOUNCE)
++        ItemIds.MUSIC_DISC_BOUNCE, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.BOUNCE)
+     );
+     public static final Item MUSIC_DISC_CHIRP = registerItem(
+-        ItemIds.MUSIC_DISC_CHIRP, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.CHIRP)
++        ItemIds.MUSIC_DISC_CHIRP, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.CHIRP)
+     );
+     public static final Item MUSIC_DISC_CREATOR = registerItem(
+-        ItemIds.MUSIC_DISC_CREATOR, new Item.Properties().stacksTo(1).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.CREATOR)
++        ItemIds.MUSIC_DISC_CREATOR, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.CREATOR)
+     );
+     public static final Item MUSIC_DISC_CREATOR_MUSIC_BOX = registerItem(
+-        ItemIds.MUSIC_DISC_CREATOR_MUSIC_BOX, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.CREATOR_MUSIC_BOX)
++        ItemIds.MUSIC_DISC_CREATOR_MUSIC_BOX, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.CREATOR_MUSIC_BOX)
+     );
+     public static final Item MUSIC_DISC_FAR = registerItem(
+-        ItemIds.MUSIC_DISC_FAR, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.FAR)
++        ItemIds.MUSIC_DISC_FAR, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.FAR)
+     );
+     public static final Item MUSIC_DISC_LAVA_CHICKEN = registerItem(
+-        ItemIds.MUSIC_DISC_LAVA_CHICKEN, new Item.Properties().stacksTo(1).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.LAVA_CHICKEN)
++        ItemIds.MUSIC_DISC_LAVA_CHICKEN, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.LAVA_CHICKEN)
+     );
+     public static final Item MUSIC_DISC_MALL = registerItem(
+-        ItemIds.MUSIC_DISC_MALL, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.MALL)
++        ItemIds.MUSIC_DISC_MALL, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.MALL)
+     );
+     public static final Item MUSIC_DISC_MELLOHI = registerItem(
+-        ItemIds.MUSIC_DISC_MELLOHI, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.MELLOHI)
++        ItemIds.MUSIC_DISC_MELLOHI, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.MELLOHI)
+     );
+     public static final Item MUSIC_DISC_STAL = registerItem(
+-        ItemIds.MUSIC_DISC_STAL, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.STAL)
++        ItemIds.MUSIC_DISC_STAL, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.STAL)
+     );
+     public static final Item MUSIC_DISC_STRAD = registerItem(
+-        ItemIds.MUSIC_DISC_STRAD, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.STRAD)
++        ItemIds.MUSIC_DISC_STRAD, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.STRAD)
+     );
+     public static final Item MUSIC_DISC_WARD = registerItem(
+-        ItemIds.MUSIC_DISC_WARD, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.WARD)
++        ItemIds.MUSIC_DISC_WARD, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.WARD)
+     );
+     public static final Item MUSIC_DISC_11 = registerItem(
+-        ItemIds.MUSIC_DISC_11, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.ELEVEN)
++        ItemIds.MUSIC_DISC_11, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.ELEVEN)
+     );
+     public static final Item MUSIC_DISC_WAIT = registerItem(
+-        ItemIds.MUSIC_DISC_WAIT, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.WAIT)
++        ItemIds.MUSIC_DISC_WAIT, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.WAIT)
+     );
+     public static final Item MUSIC_DISC_OTHERSIDE = registerItem(
+-        ItemIds.MUSIC_DISC_OTHERSIDE, new Item.Properties().stacksTo(1).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.OTHERSIDE)
++        ItemIds.MUSIC_DISC_OTHERSIDE, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.OTHERSIDE)
+     );
+     public static final Item MUSIC_DISC_RELIC = registerItem(
+-        ItemIds.MUSIC_DISC_RELIC, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.RELIC)
++        ItemIds.MUSIC_DISC_RELIC, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.RELIC)
+     );
+     public static final Item MUSIC_DISC_5 = registerItem(
+-        ItemIds.MUSIC_DISC_5, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.FIVE)
++        ItemIds.MUSIC_DISC_5, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.FIVE)
+     );
+     public static final Item MUSIC_DISC_PIGSTEP = registerItem(
+-        ItemIds.MUSIC_DISC_PIGSTEP, new Item.Properties().stacksTo(1).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.PIGSTEP)
++        ItemIds.MUSIC_DISC_PIGSTEP, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.RARE).jukeboxPlayable(JukeboxSongs.PIGSTEP)
+     );
+     public static final Item MUSIC_DISC_PRECIPICE = registerItem(
+-        ItemIds.MUSIC_DISC_PRECIPICE, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.PRECIPICE)
++        ItemIds.MUSIC_DISC_PRECIPICE, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.PRECIPICE)
+     );
+     public static final Item MUSIC_DISC_TEARS = registerItem(
+-        ItemIds.MUSIC_DISC_TEARS, new Item.Properties().stacksTo(1).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.TEARS)
++        ItemIds.MUSIC_DISC_TEARS, new Item.Properties().initCustomize().stacksTo(64).rarity(Rarity.UNCOMMON).jukeboxPlayable(JukeboxSongs.TEARS)
+     );
+     public static final Item DISC_FRAGMENT_5 = registerItem(ItemIds.DISC_FRAGMENT_5, DiscFragmentItem::new, new Item.Properties().rarity(Rarity.UNCOMMON));
+     public static final Item TRIDENT = registerItem(
+@@ -2612,7 +2612,7 @@ public class Items {
+     public static final Item SUSPICIOUS_STEW = registerItem(
+         ItemIds.SUSPICIOUS_STEW,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .food(Foods.SUSPICIOUS_STEW)
+             .component(DataComponents.SUSPICIOUS_STEW_EFFECTS, SuspiciousStewEffects.EMPTY)
+             .usingConvertsTo(BOWL)
+@@ -2621,67 +2621,67 @@ public class Items {
+     public static final Item FLOWER_BANNER_PATTERN = registerItem(
+         ItemIds.FLOWER_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_FLOWER))
+     );
+     public static final Item CREEPER_BANNER_PATTERN = registerItem(
+         ItemIds.CREEPER_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .rarity(Rarity.UNCOMMON)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_CREEPER))
+     );
+     public static final Item SKULL_BANNER_PATTERN = registerItem(
+         ItemIds.SKULL_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .rarity(Rarity.RARE)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_SKULL))
+     );
+     public static final Item MOJANG_BANNER_PATTERN = registerItem(
+         ItemIds.MOJANG_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .rarity(Rarity.RARE)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_MOJANG))
+     );
+     public static final Item GLOBE_BANNER_PATTERN = registerItem(
+         ItemIds.GLOBE_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_GLOBE))
+     );
+     public static final Item PIGLIN_BANNER_PATTERN = registerItem(
+         ItemIds.PIGLIN_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .rarity(Rarity.UNCOMMON)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_PIGLIN))
+     );
+     public static final Item FLOW_BANNER_PATTERN = registerItem(
+         ItemIds.FLOW_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .rarity(Rarity.RARE)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_FLOW))
+     );
+     public static final Item GUSTER_BANNER_PATTERN = registerItem(
+         ItemIds.GUSTER_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .rarity(Rarity.RARE)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_GUSTER))
+     );
+     public static final Item FIELD_MASONED_BANNER_PATTERN = registerItem(
+         ItemIds.FIELD_MASONED_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_FIELD_MASONED))
+     );
+     public static final Item BORDURE_INDENTED_BANNER_PATTERN = registerItem(
+         ItemIds.BORDURE_INDENTED_BANNER_PATTERN,
+         new Item.Properties()
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .delayedComponent(DataComponents.PROVIDES_BANNER_PATTERNS, context -> context.getOrThrow(BannerPatternTags.PATTERN_ITEM_BORDURE_INDENTED))
+     );
+     public static final Item GOAT_HORN = registerItem(
+@@ -2689,7 +2689,7 @@ public class Items {
+         InstrumentItem::new,
+         new Item.Properties()
+             .rarity(Rarity.UNCOMMON)
+-            .stacksTo(1)
++            .initCustomize().stacksTo(64)
+             .delayedComponent(DataComponents.INSTRUMENT, context -> new InstrumentComponent(context.getOrThrow(Instruments.PONDER_GOAT_HORN)))
+     );
+     public static final Item COMPOSTER = registerBlock(
+@@ -2757,7 +2757,7 @@ public class Items {
+     );
+     public static final Item HONEY_BOTTLE = registerItem(
+         ItemIds.HONEY_BOTTLE,
+-        new Item.Properties().craftRemainder(GLASS_BOTTLE).food(Foods.HONEY_BOTTLE, Consumables.HONEY_BOTTLE).usingConvertsTo(GLASS_BOTTLE).stacksTo(16)
++        new Item.Properties().craftRemainder(GLASS_BOTTLE).food(Foods.HONEY_BOTTLE, Consumables.HONEY_BOTTLE).usingConvertsTo(GLASS_BOTTLE).initCustomize().stacksTo(64)
+     );
+     public static final Item HONEYCOMB_BLOCK = registerBlock(BlockItemIds.HONEYCOMB_BLOCK, Blocks.HONEYCOMB_BLOCK);
+     public static final Item LODESTONE = registerBlock(BlockItemIds.LODESTONE, Blocks.LODESTONE);
+diff --git a/net/minecraft/world/item/SolidBucketItem.java b/net/minecraft/world/item/SolidBucketItem.java
+index 99e4cc1273a0f708091787e367046011a011bd72..2d597d1bad13851a10fd0ba7f25fe018f04991b6 100644
+--- a/net/minecraft/world/item/SolidBucketItem.java
++++ b/net/minecraft/world/item/SolidBucketItem.java
+@@ -27,7 +27,17 @@ public class SolidBucketItem extends BlockItem implements DispensibleContainerIt
+         InteractionResult placeResult = super.useOn(context);
+         Player player = context.getPlayer();
+         if (placeResult.consumesAction() && player != null) {
+-            player.setItemInHand(context.getHand(), BucketItem.getEmptySuccessItem(context.getItemInHand(), player));
++            // magconch start - handle stacked powder snow buckets
++            ItemStack itemInHand = context.getItemInHand();
++            ItemStack emptyBucket = BucketItem.getEmptySuccessItem(itemInHand, player);
++            if (!player.hasInfiniteMaterials()) {
++                if (itemInHand.isEmpty()) {
++                    player.setItemInHand(context.getHand(), emptyBucket);
++                } else if (!player.getInventory().add(emptyBucket)) {
++                    player.drop(emptyBucket, false, net.minecraft.util.Prediction.PREDICTED);
++                }
++            }
++            // magconch end - handle stacked powder snow buckets
+         }
+ 
+         return placeResult;
+diff --git a/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java b/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java
+index 2624bb1dbdc2dbf09ce5d1f0867cfa6722f32f0c..0de65b23fd2898c292334a4cdd4667978ae4e47d 100644
+--- a/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java
++++ b/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java
+@@ -353,7 +353,15 @@ public abstract class AbstractFurnaceBlockEntity extends BaseContainerBlockEntit
+         // CraftBukkit end
+ 
+         if (inputItemStack.is(Items.WET_SPONGE) && !items.get(1).isEmpty() && items.get(1).is(Items.BUCKET)) {
+-            items.set(1, new ItemStack(Items.WATER_BUCKET));
++            // magconch start - handle stacked empty buckets in furnace
++            ItemStack fuelSlot = items.get(1);
++            fuelSlot.shrink(1);
++            if (fuelSlot.isEmpty()) {
++                items.set(1, new ItemStack(Items.WATER_BUCKET));
++            } else {
++                Containers.dropItemStack(level, blockPos.getX(), blockPos.getY(), blockPos.getZ(), new ItemStack(Items.WATER_BUCKET));
++            }
++            // magconch end - handle stacked empty buckets in furnace
+         }
+ 
+         inputItemStack.shrink(1);
+diff --git a/net/minecraft/world/level/block/entity/JukeboxBlockEntity.java b/net/minecraft/world/level/block/entity/JukeboxBlockEntity.java
+index eb0a6009ce66c51931f132acb2a5f7e5d5fa31aa..334d0acc775ff468784633fbcc6b751f989d4a6d 100644
+--- a/net/minecraft/world/level/block/entity/JukeboxBlockEntity.java
++++ b/net/minecraft/world/level/block/entity/JukeboxBlockEntity.java
+@@ -25,7 +25,7 @@ public class JukeboxBlockEntity extends BlockEntity implements ContainerSingleIt
+ 
+     // CraftBukkit start - add fields and methods
+     public java.util.List<org.bukkit.entity.HumanEntity> transaction = new java.util.ArrayList<>();
+-    private int maxStack = MAX_STACK;
++    private int maxStack = 1; // magconch - jukebox only holds 1 disc
+     public boolean opened;
+ 
+     @Override
