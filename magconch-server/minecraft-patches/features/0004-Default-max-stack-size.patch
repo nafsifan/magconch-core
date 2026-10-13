@@ -53,6 +53,18 @@ index 6cff7159f20ceac958f133b5eb03b74495eee242..5e7d56e774a4c48d2ea90033e4174673
          }
      }
  }
+diff --git a/net/minecraft/world/item/BottleItem.java b/net/minecraft/world/item/BottleItem.java
+index 83c4c614ccc3a219d4e27d9e17d0fc61ec6e4dd9..b16fe17e3b4b708c3c29c05154f9c599abf3e3ff 100644
+--- a/net/minecraft/world/item/BottleItem.java
++++ b/net/minecraft/world/item/BottleItem.java
+@@ -55,6 +55,7 @@ public class BottleItem extends Item {
+                 }
+ 
+                 if (level.getFluidState(pos).is(FluidTags.WATER)) {
++                    player.containerMenu.sendAllDataToRemote(); // magconch - customize default components: resync full inventory for stacked water bottle
+                     level.playSound(player, player.getX(), player.getY(), player.getZ(), SoundEvents.BOTTLE_FILL, SoundSource.NEUTRAL, 1.0F, 1.0F);
+                     level.gameEvent(player, GameEvent.FLUID_PICKUP, pos);
+                     return InteractionResult.SUCCESS
 diff --git a/net/minecraft/world/item/Item.java b/net/minecraft/world/item/Item.java
 index a7af8281807835ade90a5ed798e903dabe74744c..3aab7116490adeb00c20a9c0fc013856886e2851 100644
 --- a/net/minecraft/world/item/Item.java
@@ -970,6 +982,18 @@ index 99e4cc1273a0f708091787e367046011a011bd72..2d597d1bad13851a10fd0ba7f25fe018
          }
  
          return placeResult;
+diff --git a/net/minecraft/world/level/block/BeehiveBlock.java b/net/minecraft/world/level/block/BeehiveBlock.java
+index a6d6e4acc5b46f869aa17b743d558e708c185f7e..183ecde12efb2c88a4e41cea041f08147a36c5be 100644
+--- a/net/minecraft/world/level/block/BeehiveBlock.java
++++ b/net/minecraft/world/level/block/BeehiveBlock.java
+@@ -182,6 +182,7 @@ public class BeehiveBlock extends BaseEntityBlock {
+                 } else if (!player.getInventory().add(new ItemStack(Items.HONEY_BOTTLE))) {
+                     player.drop(new ItemStack(Items.HONEY_BOTTLE), false, Prediction.PREDICTED);
+                 }
++                player.containerMenu.sendAllDataToRemote(); // magconch - customize default components: resync full inventory for stacked honey bottle
+ 
+                 hiveEmptied = true;
+                 level.gameEvent(player, GameEvent.FLUID_PICKUP, pos);
 diff --git a/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java b/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java
 index 2624bb1dbdc2dbf09ce5d1f0867cfa6722f32f0c..0de65b23fd2898c292334a4cdd4667978ae4e47d 100644
 --- a/net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity.java
