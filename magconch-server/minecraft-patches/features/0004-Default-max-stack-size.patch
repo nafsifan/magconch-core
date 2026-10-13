@@ -19,6 +19,27 @@ index 80b4905bc7b9c67a0d4355e5de3b3cdb46fcb061..91e6c45b9777afb17cb644cb0d325d22
              player.awardStat(Stats.CLEAN_ARMOR);
              // LayeredCauldronBlock.lowerFillLevel(state, level, pos); // CraftBukkit
          }
+diff --git a/net/minecraft/network/HashedPatchMap.java b/net/minecraft/network/HashedPatchMap.java
+index db5ffefd3faaa49136746a90801f4d71cca108a0..01531fa33da53da4e8e3d9a041d2972edbbfca57 100644
+--- a/net/minecraft/network/HashedPatchMap.java
++++ b/net/minecraft/network/HashedPatchMap.java
+@@ -45,7 +45,15 @@ public record HashedPatchMap(Map<DataComponentType<?>, Integer> addedComponents,
+                 return false;
+             }
+ 
+-            Integer actualHash = hasher.apply(typedDataComponent);
++            // magconch start - customize default components
++            Integer actualHash;
++            try {
++                net.minecraft.world.item.ItemStack.REMOTE_HASH.set(true);
++                actualHash = hasher.apply(typedDataComponent);
++            } finally {
++                net.minecraft.world.item.ItemStack.REMOTE_HASH.set(false);
++            }
++            // magconch end - customize default components
+             if (!actualHash.equals(expectedHash)) {
+                 return false;
+             }
 diff --git a/net/minecraft/network/HashedStack.java b/net/minecraft/network/HashedStack.java
 index 6cff7159f20ceac958f133b5eb03b74495eee242..5e7d56e774a4c48d2ea90033e417467321218259 100644
 --- a/net/minecraft/network/HashedStack.java
@@ -33,7 +54,7 @@ index 6cff7159f20ceac958f133b5eb03b74495eee242..5e7d56e774a4c48d2ea90033e4174673
      }
  }
 diff --git a/net/minecraft/world/item/Item.java b/net/minecraft/world/item/Item.java
-index a7af8281807835ade90a5ed798e903dabe74744c..77e41ec06e31b77e4e6947f898362e452287af03 100644
+index a7af8281807835ade90a5ed798e903dabe74744c..3aab7116490adeb00c20a9c0fc013856886e2851 100644
 --- a/net/minecraft/world/item/Item.java
 +++ b/net/minecraft/world/item/Item.java
 @@ -129,6 +129,7 @@ public class Item implements ItemLike, FeatureElement {
@@ -94,23 +115,40 @@ index a7af8281807835ade90a5ed798e903dabe74744c..77e41ec06e31b77e4e6947f898362e45
          }
  
          public Item.Properties nautilusArmor(final ArmorMaterial material) {
-@@ -737,6 +753,11 @@ public class Item implements ItemLike, FeatureElement {
+@@ -737,6 +753,12 @@ public class Item implements ItemLike, FeatureElement {
          }
  
          public <T> Item.Properties component(final DataComponentType<T> type, final T value) {
 +            // magconch start - customize default components
 +            if (this.initCustomize && !DataComponents.UNABLE_SEND_TO_CLIENT.contains(type)) {
 +                this.componentsPatchRemote.set(type, value);
++                this.initCustomize = false;
 +            }
 +            // magconch end - customize default components
              this.componentInitializer = this.componentInitializer.add(type, value);
              return this;
          }
 diff --git a/net/minecraft/world/item/ItemStack.java b/net/minecraft/world/item/ItemStack.java
-index 400e257d6842791c9dd754a687a19db961c8dd4f..2f0f3a693a028a1dced1c852e8a46c4f9d4b4250 100644
+index 400e257d6842791c9dd754a687a19db961c8dd4f..abc7bfd0d9418d36f587d2d63ddae08337c07796 100644
 --- a/net/minecraft/world/item/ItemStack.java
 +++ b/net/minecraft/world/item/ItemStack.java
-@@ -262,6 +262,7 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+@@ -112,13 +112,14 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+     );
+     private static final Component UNBREAKABLE_TOOLTIP = Component.translatable("item.unbreakable").withStyle(ChatFormatting.BLUE);
+     private static final Component INTANGIBLE_TOOLTIP = Component.translatable("item.intangible").withStyle(ChatFormatting.GRAY);
++    public static final ThreadLocal<Boolean> REMOTE_HASH = ThreadLocal.withInitial(() -> false); // magconch - customize default components
+     public static final MapCodec<ItemStack> MAP_CODEC = MapCodec.recursive(
+         "ItemStack",
+         subCodec -> RecordCodecBuilder.mapCodec(
+             i -> i.group(
+                     Item.CODEC_WITH_BOUND_COMPONENTS.fieldOf("id").forGetter(ItemStack::typeHolder),
+                     ExtraCodecs.optionalAlwaysPresentFieldOf(ExtraCodecs.intRange(1, 99), "count", 1).forGetter(ItemStack::getCount),
+-                    DataComponentPatch.CODEC.optionalFieldOf("components", DataComponentPatch.EMPTY).forGetter(s -> s.components.asPatch())
++                    DataComponentPatch.CODEC.optionalFieldOf("components", DataComponentPatch.EMPTY).forGetter(s -> REMOTE_HASH.get() ? s.getRemoteComponentsPatch() : s.components.asPatch()) // magconch - customize default components
+                 )
+                 .apply(i, ItemStack::new)
+         )
+@@ -262,6 +263,7 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
      public DataComponentPatch getRemoteComponentsPatch() {
          if (!this.isEmpty()) {
              DataComponentPatch.Builder builder = DataComponentPatch.builder();
@@ -118,6 +156,90 @@ index 400e257d6842791c9dd754a687a19db961c8dd4f..2f0f3a693a028a1dced1c852e8a46c4f
  
              boolean changed = false;
              DataComponentPatch patch = this.components.asPatch();
+diff --git a/net/minecraft/world/item/ItemStackTemplate.java b/net/minecraft/world/item/ItemStackTemplate.java
+index c5f50a6cc901e4252c2705b5b195787372e325ca..e4c8480b0fe31cfaad1710d7288161a477545a37 100644
+--- a/net/minecraft/world/item/ItemStackTemplate.java
++++ b/net/minecraft/world/item/ItemStackTemplate.java
+@@ -22,20 +22,25 @@ public record ItemStackTemplate(Holder<Item> item, @Override int count, DataComp
+         i -> i.group(
+                 Item.CODEC.fieldOf("id").forGetter(ItemStackTemplate::item),
+                 ExtraCodecs.intRange(1, 99).optionalFieldOf("count", 1).forGetter(ItemStackTemplate::count),
+-                DataComponentPatch.CODEC.optionalFieldOf("components", DataComponentPatch.EMPTY).forGetter(ItemStackTemplate::components)
++                DataComponentPatch.CODEC.optionalFieldOf("components", DataComponentPatch.EMPTY).forGetter(t -> ItemStack.REMOTE_HASH.get() ? t.getRemoteComponentsPatch() : t.components()) // magconch - customize default components
+             )
+             .apply(i, ItemStackTemplate::new)
+     );
+     public static final Codec<ItemStackTemplate> CODEC = Codec.withAlternative(MAP_CODEC.codec(), Item.CODEC, item -> new ItemStackTemplate(item.value()));
+-    public static final StreamCodec<RegistryFriendlyByteBuf, ItemStackTemplate> STREAM_CODEC = StreamCodec.composite(
+-        Item.STREAM_CODEC,
+-        ItemStackTemplate::item,
+-        ByteBufCodecs.VAR_INT,
+-        ItemStackTemplate::count,
+-        DataComponentPatch.STREAM_CODEC,
+-        ItemStackTemplate::components,
+-        ItemStackTemplate::new
++    // magconch start - customize default components
++    public static final StreamCodec<RegistryFriendlyByteBuf, ItemStackTemplate> STREAM_CODEC = StreamCodec.of(
++        (output, template) -> {
++            Item.STREAM_CODEC.encode(output, template.item());
++            ByteBufCodecs.VAR_INT.encode(output, template.count());
++            DataComponentPatch.STREAM_CODEC.encode(output, template.getRemoteComponentsPatch());
++        },
++        input -> new ItemStackTemplate(
++            Item.STREAM_CODEC.decode(input),
++            ByteBufCodecs.VAR_INT.decode(input),
++            DataComponentPatch.STREAM_CODEC.decode(input)
++        )
+     );
++    // magconch end - customize default components
+ 
+     public ItemStackTemplate(final Item item) {
+         this(item.builtInRegistryHolder(), 1, DataComponentPatch.EMPTY);
+@@ -116,4 +121,26 @@ public record ItemStackTemplate(Holder<Item> item, @Override int count, DataComp
+     public <T> @Nullable T get(final DataComponentType<? extends T> type) {
+         return this.components.get(this.item.components(), type);
+     }
++
++    // magconch start - customize default components
++    public DataComponentPatch getRemoteComponentsPatch() {
++        DataComponentPatch.Builder builder = DataComponentPatch.builder();
++        builder.copy(this.item.value().componentsPatchRemote());
++
++        DataComponentPatch.SplitResult split = this.components.split();
++        for (net.minecraft.core.component.TypedDataComponent<?> component : split.added()) {
++            if (!net.minecraft.core.component.DataComponents.UNABLE_SEND_TO_CLIENT.contains(component.type())) {
++                builder.set(component);
++            }
++        }
++
++        for (DataComponentType<?> type : split.removed()) {
++            if (!net.minecraft.core.component.DataComponents.UNABLE_SEND_TO_CLIENT.contains(type)) {
++                builder.remove(type);
++            }
++        }
++
++        return builder.build();
++    }
++    // magconch end - customize default components
+ }
+diff --git a/net/minecraft/world/item/ItemUtils.java b/net/minecraft/world/item/ItemUtils.java
+index beb13c435ad1b3b23fcc0f0d9a2fd37b1d3d1581..e003b3d19d8bb22035e24a8a708c4bd923188d5c 100644
+--- a/net/minecraft/world/item/ItemUtils.java
++++ b/net/minecraft/world/item/ItemUtils.java
+@@ -34,6 +34,13 @@ public class ItemUtils {
+                 player.drop(newItemStack, false, Prediction.PREDICTED);
+             }
+ 
++            // magconch start - customize default components: resync full inventory for stacked converted items
++            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
++                && (!newItemStack.getItem().componentsPatchRemote().isEmpty() || !itemStack.getItem().componentsPatchRemote().isEmpty())) {
++                serverPlayer.inventoryMenu.sendAllDataToRemote();
++            }
++            // magconch end - customize default components: resync full inventory for stacked converted items
++
+             return itemStack;
+         }
+     }
 diff --git a/net/minecraft/world/item/Items.java b/net/minecraft/world/item/Items.java
 index cb6d984da2188c68df45a71b6004c30582023f98..48e7dd118900b407920bc4491e2bac7d53f02481 100644
 --- a/net/minecraft/world/item/Items.java
