@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Tue, 13 Oct 2026 14:19:25 +0800
+Subject: [PATCH] Implement bot
+
+
+diff --git a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+index 0b35a293f3436bcf8a39c4f07a88340cd9d33bcb..f8f643646f49dd8783437a7d9ed2902f4f57c90e 100644
+--- a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
++++ b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+@@ -392,4 +392,19 @@ public class GlobalConfiguration extends ConfigurationPart {
+     public class UpdateChecker extends ConfigurationPart {
+         public boolean enabled = true;
+     }
++
++    // magconch start - bot configuration
++    public MagconchConfig magconch;
++
++    public class MagconchConfig extends ConfigurationPart {
++        public Bot bot;
++
++        public class Bot extends ConfigurationPart {
++            public boolean enable = true;
++            public int playerLimit = 2;
++            public boolean resident = true;
++            public int timeoutHours = 24;
++        }
++    }
++    // magconch end - bot configuration
+ }
+diff --git a/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java b/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
+index 8b7a15af1eb2cc0318e26d7199c8e684de63cd72..40e207d584c7fe5895a63b4e5ed92232650189f1 100644
+--- a/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
++++ b/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
+@@ -40,6 +40,12 @@ class PaperEventManager {
+             throw new IllegalStateException(event.getEventName() + " may only be triggered synchronously.");
+         }
+ 
++        // magconch start - skip bot player events
++        if (event instanceof org.bukkit.event.player.PlayerEvent playerEvent && ((org.bukkit.craftbukkit.entity.CraftPlayer) playerEvent.getPlayer()).getHandle() instanceof org.magconch.bot.ServerBot) {
++            return;
++        }
++        // magconch end - skip bot player events
++
+         HandlerList handlers = event.getHandlers();
+         RegisteredListener[] listeners = handlers.getRegisteredListeners();
+ 
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftServer.java b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+index 5f33ba98facf68a185263d4e6cff96207426aa79..53ee74d6f08ea6f174cc1afe6d487a8dfbf5f647 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftServer.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+@@ -1317,6 +1317,7 @@ public final class CraftServer implements Server {
+             return false;
+         }
+ 
++        org.magconch.bot.BotList.instance().removeAllIn(handle); // magconch - remove bots before world unload
+         if (!handle.players().isEmpty()) {
+             return false;
+         }
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
+index 9db1a0be9fc09b0e33ed522a4566468474a5632b..1391125ba5212be71d8c241758d1de85dfb3a3f1 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
+@@ -248,7 +248,7 @@ public class CraftWorld extends CraftRegionAccessor implements World {
+ 
+     @Override
+     public int getPlayerCount() {
+-        return world.players().size();
++        return (int) this.world.players().stream().filter(p -> !(p instanceof org.magconch.bot.ServerBot)).count(); // magconch - bot skip
+     }
+ 
+     @Override
+@@ -1115,6 +1115,7 @@ public class CraftWorld extends CraftRegionAccessor implements World {
+         List<Player> list = new ArrayList<Player>(this.world.players().size());
+ 
+         for (net.minecraft.world.entity.player.Player human : this.world.players()) {
++            if (human instanceof org.magconch.bot.ServerBot) continue; // magconch - bot skip
+             HumanEntity bukkitEntity = human.getBukkitEntity();
+ 
+             if ((bukkitEntity != null) && (bukkitEntity instanceof Player)) {
+diff --git a/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java b/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
+index 7ad31b059c1c7a1a2fae1fa7a3359da5343e217d..70cabd87c3256e162f1cfee291e00f889f2aade4 100644
+--- a/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
++++ b/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
+@@ -16,6 +16,14 @@ public final class CraftDefaultPermissions {
+         DefaultPermissions.registerPermission(CraftDefaultPermissions.ROOT + ".debugstick", "Gives the user the ability to use the debug stick in creative", org.bukkit.permissions.PermissionDefault.OP, parent);
+         DefaultPermissions.registerPermission(CraftDefaultPermissions.ROOT + ".debugstick.always", "Gives the user the ability to use the debug stick in all game modes", org.bukkit.permissions.PermissionDefault.FALSE/* , parent */); // Paper - should not have this parent, as it's not a "vanilla" utility
+         DefaultPermissions.registerPermission(CraftDefaultPermissions.ROOT + ".commandblock", "Gives the user the ability to use command blocks.", org.bukkit.permissions.PermissionDefault.OP, parent); // Paper
++        // magconch start - bot permissions
++        Permission botPerm = DefaultPermissions.registerPermission("bukkit.command.bot", "Allows the user to use standard /bot commands", org.bukkit.permissions.PermissionDefault.OP);
++        DefaultPermissions.registerPermission("bukkit.command.bot.create", "Allows the user to create a bot", org.bukkit.permissions.PermissionDefault.OP, botPerm);
++        DefaultPermissions.registerPermission("bukkit.command.bot.remove", "Allows the user to remove their own bot", org.bukkit.permissions.PermissionDefault.OP, botPerm);
++        DefaultPermissions.registerPermission("bukkit.command.bot.list", "Allows the user to list active bots", org.bukkit.permissions.PermissionDefault.OP, botPerm);
++        DefaultPermissions.registerPermission("bukkit.command.bot.admin", "Allows the user to manage all bots and bypass per-player limits", org.bukkit.permissions.PermissionDefault.OP);
++        botPerm.recalculatePermissibles();
++        // magconch end - bot permissions
+         parent.recalculatePermissibles();
+     }
+ }

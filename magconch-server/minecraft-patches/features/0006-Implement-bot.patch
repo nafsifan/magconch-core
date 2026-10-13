@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Tue, 13 Oct 2026 14:19:25 +0800
+Subject: [PATCH] Implement bot
+
+
+diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
+index 7e4083634d051268d60f2936d238111f5f947a99..1c2e65fc4363043b54039af71b79fca9e8348d19 100644
+--- a/net/minecraft/commands/Commands.java
++++ b/net/minecraft/commands/Commands.java
+@@ -263,6 +263,7 @@ public class Commands {
+         TestCommand.register(this.dispatcher, context);
+         TickCommand.register(this.dispatcher);
+         org.magconch.command.TPSBarCommand.register(this.dispatcher); // magconch - tpsbar
++        org.magconch.command.BotCommand.register(this.dispatcher); // magconch - bot
+         TimeCommand.register(this.dispatcher, context);
+         TitleCommand.register(this.dispatcher, context);
+         TriggerCommand.register(this.dispatcher);
+diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
+index 6b9bfb25e7c1c1e748b2d07cdae0a63da382fd7a..3a7ec2d8e2b6bf1c4bc6174718a24376247701b4 100644
+--- a/net/minecraft/server/MinecraftServer.java
++++ b/net/minecraft/server/MinecraftServer.java
+@@ -646,6 +646,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+         this.server.getCommandMap().registerServerAliases(); // Paper - relocate initial CommandMap#registerServerAliases() call
+         ((org.bukkit.craftbukkit.help.SimpleHelpMap) this.server.getHelpMap()).initializeCommands();
+         this.server.getPluginManager().callEvent(new org.bukkit.event.server.ServerLoadEvent(org.bukkit.event.server.ServerLoadEvent.LoadType.STARTUP));
++        org.magconch.bot.BotList.instance().loadBots(); // magconch - bot
+         this.connection.acceptConnections();
+     }
+     // Paper end - rework world loading process
+@@ -1004,6 +1005,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+ 
+         LOGGER.info("Stopping server");
+         Commands.COMMAND_SENDING_POOL.shutdownNow(); // Paper - Perf: Async command map building; Shutdown and don't bother finishing
++        org.magconch.bot.BotList.instance().onServerShutdown(); // magconch - bot
+         // CraftBukkit start
+         if (this.server != null) {
+             this.server.spark.disable(); // Paper - spark
+@@ -1565,7 +1567,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+         int emptyTickThreshold = this.pauseWhenEmptySeconds() * 20;
+         this.removeDisabledPluginsBlockingSleep(); // Paper - API to allow/disallow tick sleeping
+         if (emptyTickThreshold > 0) {
+-            if (this.playerList.getPlayerCount() == 0 && !this.tickRateManager.isSprinting() && this.pluginsBlockingSleep.isEmpty()) { // Paper - API to allow/disallow tick sleeping
++            if (this.playerList.getPlayerCount() == 0 && org.magconch.bot.BotList.instance().bots.isEmpty() && !this.tickRateManager.isSprinting() && this.pluginsBlockingSleep.isEmpty()) { // Paper - API to allow/disallow tick sleeping // magconch - bot
+                 this.emptyTicks++;
+             } else {
+                 this.emptyTicks = 0;
+@@ -1855,6 +1857,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+ 
+     protected void tickConnection() {
+         this.getConnection().tick();
++        org.magconch.bot.BotList.instance().networkTick(); // magconch - bot
+     }
+ 
+     public void forceGameTimeSynchronization() {
+diff --git a/net/minecraft/server/PlayerAdvancements.java b/net/minecraft/server/PlayerAdvancements.java
+index e70701663abd6f19a506690167d80f0dceab8000..9e721238876f7b8297125127cd908ac3ed76254f 100644
+--- a/net/minecraft/server/PlayerAdvancements.java
++++ b/net/minecraft/server/PlayerAdvancements.java
+@@ -111,6 +111,7 @@ public class PlayerAdvancements {
+     }
+ 
+     private void load(final ServerAdvancementManager manager) {
++        if (this.player instanceof org.magconch.bot.ServerBot) return; // magconch - bot skip advancements
+         if (Files.isRegularFile(this.playerSavePath)) {
+             try (Reader reader = Files.newBufferedReader(this.playerSavePath, StandardCharsets.UTF_8)) {
+                 JsonElement json = StrictJsonParser.parse(reader);
+@@ -128,7 +129,7 @@ public class PlayerAdvancements {
+     }
+ 
+     public void save() {
+-        if (org.spigotmc.SpigotConfig.disableAdvancementSaving) return; // Spigot
++        if (org.spigotmc.SpigotConfig.disableAdvancementSaving || this.player instanceof org.magconch.bot.ServerBot) return; // Spigot // magconch - bot skip advancements
+         JsonElement json = this.codec.encodeStart(JsonOps.INSTANCE, this.asData()).getOrThrow();
+ 
+         try {
+@@ -167,6 +168,7 @@ public class PlayerAdvancements {
+     }
+ 
+     public boolean award(final AdvancementHolder holder, final String criterion) {
++        if (this.player instanceof org.magconch.bot.ServerBot) return false; // magconch - bot skip advancements
+         boolean result = false;
+         AdvancementProgress progress = this.getOrStartProgress(holder);
+         boolean wasDone = progress.isDone();
+diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
+index 356cd6f0f8c8c53ec2fb1c488b6c1d18dfc0e8fc..5d159c02e8edbd9a4b45847f228410f25d4bd6e4 100644
+--- a/net/minecraft/server/level/ServerPlayer.java
++++ b/net/minecraft/server/level/ServerPlayer.java
+@@ -1283,7 +1283,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         this.connection.markClientUnloadedAfterDeath();
+     }
+ 
+-    private void tellNeutralMobsThatIDied() {
++    protected void tellNeutralMobsThatIDied() { // magconch - private -> protected for ServerBot
+         AABB aabb = new AABB(this.blockPosition()).inflate(32.0, 10.0, 32.0);
+         this.level()
+             .getEntitiesOfClass(Mob.class, aabb, EntitySelector.NO_SPECTATORS)
+diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
+index 61918c15348d4999dae26fb27460de5e4ee38f98..30b66c590cea8f1262fec106a869ee33f1be9eeb 100644
+--- a/net/minecraft/server/players/PlayerList.java
++++ b/net/minecraft/server/players/PlayerList.java
+@@ -248,6 +248,16 @@ public abstract class PlayerList {
+             return;
+         }
+ 
++        // magconch start - bot support
++        org.magconch.bot.ServerBot conflictingBot = org.magconch.bot.BotList.instance().getBotByName(player.getScoreboardName());
++        if (conflictingBot != null) {
++            org.magconch.bot.BotList.instance().removeBot(conflictingBot);
++        }
++        for (org.magconch.bot.ServerBot bot : org.magconch.bot.BotList.instance().bots) {
++            bot.sendPlayerInfo(player);
++        }
++        // magconch end - bot support
++
+         final net.kyori.adventure.text.Component jm = playerJoinEvent.joinMessage();
+ 
+         if (jm != null && !jm.equals(net.kyori.adventure.text.Component.empty())) { // Paper - Adventure
+diff --git a/net/minecraft/world/entity/ExperienceOrb.java b/net/minecraft/world/entity/ExperienceOrb.java
+index 3a594416e711fc6fdbf0ac7c3484a9830324d4d8..9854c8f423182c4fb09b58bc0dc5ef77da909107 100644
+--- a/net/minecraft/world/entity/ExperienceOrb.java
++++ b/net/minecraft/world/entity/ExperienceOrb.java
+@@ -202,7 +202,7 @@ public class ExperienceOrb extends Entity {
+         Player prevTarget = this.followingPlayer; // CraftBukkit - store old target
+         if (this.followingPlayer == null || this.followingPlayer.isSpectator() || this.followingPlayer.distanceToSqr(this) > 64.0) {
+             Player nearestPlayer = this.level().getNearestPlayer(this, 8.0);
+-            if (nearestPlayer != null && !nearestPlayer.isSpectator() && !nearestPlayer.isDeadOrDying()) {
++            if (nearestPlayer != null && !nearestPlayer.isSpectator() && !nearestPlayer.isDeadOrDying() && !(nearestPlayer instanceof org.magconch.bot.ServerBot)) { // magconch - bot skip xp orb
+                 this.followingPlayer = nearestPlayer;
+             } else {
+                 this.followingPlayer = null;
+diff --git a/net/minecraft/world/entity/player/Player.java b/net/minecraft/world/entity/player/Player.java
+index 485b95402e23f6a39a77556d0b634244fd5fdfc3..056cf53c89d1ff7ff075db61691691f012fe7024 100644
+--- a/net/minecraft/world/entity/player/Player.java
++++ b/net/minecraft/world/entity/player/Player.java
+@@ -509,7 +509,7 @@ public abstract class Player extends Avatar implements ContainerUser {
+         super.aiStep();
+         this.yHeadRot = this.getYRot();
+         this.setSpeed((float)this.getAttributeValue(Attributes.MOVEMENT_SPEED));
+-        if (this.getHealth() > 0.0F && !this.isSpectator()) {
++        if (this.getHealth() > 0.0F && !this.isSpectator() && !(this instanceof org.magconch.bot.ServerBot)) { // magconch - bot skip item and xp pickup
+             AABB pickupArea;
+             if (this.isPassenger() && !this.getVehicle().isRemoved()) {
+                 pickupArea = this.getBoundingBox().minmax(this.getVehicle().getBoundingBox()).inflate(1.0, 0.0, 1.0);
+@@ -1242,7 +1242,7 @@ public abstract class Player extends Avatar implements ContainerUser {
+             // Paper end - Configurable sprint interruption on attack
+         }
+ 
+-        if (entity instanceof ServerPlayer serverPlayer && entity.syncVelocity) {
++        if (entity instanceof ServerPlayer serverPlayer && !(entity instanceof org.magconch.bot.ServerBot) && entity.syncVelocity) { // magconch - bot knockback
+             // CraftBukkit start - Add Velocity Event
+             boolean cancelled = false;
+             org.bukkit.entity.Player player = (org.bukkit.entity.Player) entity.getBukkitEntity();
