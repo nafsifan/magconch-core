@@ -244,7 +244,7 @@ index 409fd5afe319cad4f1e92d9da080f000ff28c951..34eb72c369f663d87bca41fb1d3d86fb
 +    // magconch end - adjust enchantment
  }
 diff --git a/net/minecraft/world/inventory/AnvilMenu.java b/net/minecraft/world/inventory/AnvilMenu.java
-index a577225f59bb562b860cb90db72b4d658a69956f..3566ae4f4cd19d3e08f388caf0352ba902b7efce 100644
+index a577225f59bb562b860cb90db72b4d658a69956f..d9848280281883c4a4486cc2b1a91594aadff018 100644
 --- a/net/minecraft/world/inventory/AnvilMenu.java
 +++ b/net/minecraft/world/inventory/AnvilMenu.java
 @@ -107,7 +107,7 @@ public class AnvilMenu extends ItemCombinerMenu {
@@ -322,7 +322,7 @@ index a577225f59bb562b860cb90db72b4d658a69956f..3566ae4f4cd19d3e08f388caf0352ba9
                      baseCost = calculateIncreasedRepairCost(baseCost);
                  }
  
-@@ -298,11 +313,49 @@ public class AnvilMenu extends ItemCombinerMenu {
+@@ -298,11 +313,50 @@ public class AnvilMenu extends ItemCombinerMenu {
          return (int)Math.min(baseCost * 2L + 1L, 2147483647L);
      }
  
@@ -344,15 +344,16 @@ index a577225f59bb562b860cb90db72b4d658a69956f..3566ae4f4cd19d3e08f388caf0352ba9
 +        }
 +
 +        net.kyori.adventure.text.Component component;
-+        if (bukkitPlayer.hasPermission("magconch.anvil.minimessage") || !bukkitPlayer.isPermissionSet("magconch.anvil.minimessage")) {
++        boolean allowMiniMessage = bukkitPlayer.hasPermission("magconch.anvil.minimessage") || !bukkitPlayer.isPermissionSet("magconch.anvil.minimessage");
++        if (allowMiniMessage && name.indexOf('<') != -1 && name.indexOf('>') != -1) {
 +            component = net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(name);
 +        } else {
 +            if (bukkitPlayer.hasPermission("magconch.anvil.color") || !bukkitPlayer.isPermissionSet("magconch.anvil.color")) {
-+                name = name.replaceAll("&([0-9a-fr])", "\u00a7$1");
-+                name = name.replaceAll("&#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])", "\u00a7x\u00a7$1\u00a7$2\u00a7$3\u00a7$4\u00a7$5\u00a7$6");
++                name = name.replaceAll("&([0-9a-frR])", "\u00a7$1");
++                name = name.replaceAll("&#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])", "\u00a7x\u00a7$1\u00a7$2\u00a7$3\u00a7$4\u00a7$5\u00a7$6");
 +            }
 +            if (bukkitPlayer.hasPermission("magconch.anvil.format") || !bukkitPlayer.isPermissionSet("magconch.anvil.format")) {
-+                name = name.replaceAll("&([k-or])", "\u00a7$1");
++                name = name.replaceAll("&([k-orK-OR])", "\u00a7$1");
 +            }
 +            component = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(name);
 +        }
