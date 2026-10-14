@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Nafsi <i@nafsi.me>
 Date: Tue, 13 Oct 2026 12:42:11 +0800
-Subject: [PATCH] Default max stack size
+Subject: [PATCH] Custom Item Max Stack Size
 
 
 diff --git a/net/minecraft/core/cauldron/CauldronInteractions.java b/net/minecraft/core/cauldron/CauldronInteractions.java

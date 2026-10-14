@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Nafsi <i@nafsi.me>
 Date: Mon, 12 Oct 2026 13:41:10 +0800
-Subject: [PATCH] Thirst
+Subject: [PATCH] Thirst System
 
 
 diff --git a/net/minecraft/core/component/DataComponents.java b/net/minecraft/core/component/DataComponents.java
@@ -437,7 +437,7 @@ index aef1a9cb52efc2f432f8015f5aef5a76fe1014d5..a7af8281807835ade90a5ed798e903da
      }
  
 diff --git a/net/minecraft/world/item/ItemStack.java b/net/minecraft/world/item/ItemStack.java
-index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db961c8dd4f 100644
+index 00861318771cd184c9f75a9a036deee9ec2ba310..ee9c59ebdafc47101696b1eaebfa3969742b6a76 100644
 --- a/net/minecraft/world/item/ItemStack.java
 +++ b/net/minecraft/world/item/ItemStack.java
 @@ -39,7 +39,11 @@ import net.minecraft.network.chat.HoverEvent;
@@ -479,7 +479,7 @@ index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db9
                      } finally {
                          net.minecraft.network.chat.ComponentSerialization.DONT_RENDER_TRANSLATABLES.set(prev);
                      }
-@@ -243,6 +258,85 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+@@ -243,6 +258,89 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
          return !this.isEmpty() ? this.components.asPatch() : DataComponentPatch.EMPTY;
      }
  
@@ -569,7 +569,7 @@ index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db9
      public DataComponentMap immutableComponents() {
          return !this.isEmpty() ? this.components.toImmutableMap() : DataComponentMap.EMPTY;
      }
-@@ -845,9 +917,16 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+@@ -845,9 +943,16 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
          return a.is(b.getItem());
      }
  

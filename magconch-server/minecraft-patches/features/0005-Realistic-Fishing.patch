@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Nafsi <i@nafsi.me>
 Date: Tue, 13 Oct 2026 13:21:14 +0800
-Subject: [PATCH] More realistic fishing
+Subject: [PATCH] Realistic Fishing
 
 
 diff --git a/net/minecraft/world/entity/projectile/FishingHook.java b/net/minecraft/world/entity/projectile/FishingHook.java
