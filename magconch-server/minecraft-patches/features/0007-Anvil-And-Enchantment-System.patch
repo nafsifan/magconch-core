@@ -268,7 +268,7 @@ index 409fd5afe319cad4f1e92d9da080f000ff28c951..34eb72c369f663d87bca41fb1d3d86fb
 +    // magconch end - adjust enchantment
  }
 diff --git a/net/minecraft/world/inventory/AnvilMenu.java b/net/minecraft/world/inventory/AnvilMenu.java
-index a577225f59bb562b860cb90db72b4d658a69956f..07d5158321eedb37d109ac02f294db22332b0876 100644
+index a577225f59bb562b860cb90db72b4d658a69956f..e13581ecf9d06d120177080c5ab2f7c1208d4c33 100644
 --- a/net/minecraft/world/inventory/AnvilMenu.java
 +++ b/net/minecraft/world/inventory/AnvilMenu.java
 @@ -107,7 +107,7 @@ public class AnvilMenu extends ItemCombinerMenu {
@@ -309,11 +309,12 @@ index a577225f59bb562b860cb90db72b4d658a69956f..07d5158321eedb37d109ac02f294db22
                  if (!this.itemName.equals(input.getHoverName().getString())) {
                      namingCost = 1;
                      price += namingCost;
+-                    result.set(DataComponents.CUSTOM_NAME, Component.literal(this.itemName));
 +                    // magconch start - anvil adjust: rename free
 +                    allowZeroLevel = true;
 +                    price -= namingCost;
 +                    // magconch end - anvil adjust
-                     result.set(DataComponents.CUSTOM_NAME, Component.literal(this.itemName));
++                    result.set(DataComponents.CUSTOM_NAME, java.util.Objects.requireNonNullElseGet(this.renameColors(), () -> Component.literal(this.itemName))); // magconch - anvil adjust: colored rename
                  }
              } else if (input.has(DataComponents.CUSTOM_NAME)) {
                  namingCost = 1;
@@ -345,6 +346,57 @@ index a577225f59bb562b860cb90db72b4d658a69956f..07d5158321eedb37d109ac02f294db22
                      baseCost = calculateIncreasedRepairCost(baseCost);
                  }
  
+@@ -298,11 +313,49 @@ public class AnvilMenu extends ItemCombinerMenu {
+         return (int)Math.min(baseCost * 2L + 1L, 2147483647L);
+     }
+ 
++    // magconch start - anvil adjust: rename colors
++    private @Nullable Component renameColors() {
++        if (this.player == null || this.itemName == null) return null;
++
++        org.bukkit.craftbukkit.entity.CraftHumanEntity bukkitPlayer = this.player.getBukkitEntity();
++        String name = this.itemName;
++        boolean removeItalics = false;
++        if (bukkitPlayer.hasPermission("magconch.anvil.remove_italics")) {
++            if (name.startsWith("&r")) {
++                name = name.substring(2);
++                removeItalics = true;
++            } else if (name.startsWith("<reset>")) {
++                name = name.substring(7);
++                removeItalics = true;
++            }
++        }
++
++        net.kyori.adventure.text.Component component;
++        if (bukkitPlayer.hasPermission("magconch.anvil.minimessage")) {
++            component = net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(name);
++        } else {
++            if (bukkitPlayer.hasPermission("magconch.anvil.color")) {
++                name = name.replaceAll("&([0-9a-fr])", "\u00a7$1");
++                name = name.replaceAll("&#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])", "\u00a7x\u00a7$1\u00a7$2\u00a7$3\u00a7$4\u00a7$5\u00a7$6");
++            }
++            if (bukkitPlayer.hasPermission("magconch.anvil.format")) {
++                name = name.replaceAll("&([k-or])", "\u00a7$1");
++            }
++            component = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(name);
++        }
++
++        if (removeItalics) {
++            component = component.decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false);
++        }
++        return io.papermc.paper.adventure.PaperAdventure.asVanilla(component);
++    }
++    // magconch end - anvil adjust: rename colors
++
+     public boolean setItemName(final String name) {
+         String validatedName = validateName(name);
+         if (validatedName != null && !validatedName.equals(this.itemName)) {
+             this.itemName = validatedName;
+-            if (this.getSlot(2).hasItem()) {
++            if (false && this.getSlot(2).hasItem()) { // magconch - anvil adjust: 在 createResult() 统一设置带色彩的物品名，无需提前覆盖纯文本
+                 ItemStack itemStack = this.getSlot(2).getItem();
+                 if (StringUtil.isBlank(validatedName)) {
+                     itemStack.remove(DataComponents.CUSTOM_NAME);
 diff --git a/net/minecraft/world/item/TridentItem.java b/net/minecraft/world/item/TridentItem.java
 index 078ebe71a4a5648eb3152e218cd4bb7d99f6a6c9..76c17d78e7f2b3f3cbf67590f3440eec9d8b9d74 100644
 --- a/net/minecraft/world/item/TridentItem.java
