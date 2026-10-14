@@ -244,7 +244,7 @@ index 409fd5afe319cad4f1e92d9da080f000ff28c951..34eb72c369f663d87bca41fb1d3d86fb
 +    // magconch end - adjust enchantment
  }
 diff --git a/net/minecraft/world/inventory/AnvilMenu.java b/net/minecraft/world/inventory/AnvilMenu.java
-index a577225f59bb562b860cb90db72b4d658a69956f..e13581ecf9d06d120177080c5ab2f7c1208d4c33 100644
+index a577225f59bb562b860cb90db72b4d658a69956f..3566ae4f4cd19d3e08f388caf0352ba902b7efce 100644
 --- a/net/minecraft/world/inventory/AnvilMenu.java
 +++ b/net/minecraft/world/inventory/AnvilMenu.java
 @@ -107,7 +107,7 @@ public class AnvilMenu extends ItemCombinerMenu {
@@ -333,7 +333,7 @@ index a577225f59bb562b860cb90db72b4d658a69956f..e13581ecf9d06d120177080c5ab2f7c1
 +        org.bukkit.craftbukkit.entity.CraftHumanEntity bukkitPlayer = this.player.getBukkitEntity();
 +        String name = this.itemName;
 +        boolean removeItalics = false;
-+        if (bukkitPlayer.hasPermission("magconch.anvil.remove_italics")) {
++        if (bukkitPlayer.hasPermission("magconch.anvil.remove_italics") || !bukkitPlayer.isPermissionSet("magconch.anvil.remove_italics")) {
 +            if (name.startsWith("&r")) {
 +                name = name.substring(2);
 +                removeItalics = true;
@@ -344,14 +344,14 @@ index a577225f59bb562b860cb90db72b4d658a69956f..e13581ecf9d06d120177080c5ab2f7c1
 +        }
 +
 +        net.kyori.adventure.text.Component component;
-+        if (bukkitPlayer.hasPermission("magconch.anvil.minimessage")) {
++        if (bukkitPlayer.hasPermission("magconch.anvil.minimessage") || !bukkitPlayer.isPermissionSet("magconch.anvil.minimessage")) {
 +            component = net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(name);
 +        } else {
-+            if (bukkitPlayer.hasPermission("magconch.anvil.color")) {
++            if (bukkitPlayer.hasPermission("magconch.anvil.color") || !bukkitPlayer.isPermissionSet("magconch.anvil.color")) {
 +                name = name.replaceAll("&([0-9a-fr])", "\u00a7$1");
 +                name = name.replaceAll("&#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])", "\u00a7x\u00a7$1\u00a7$2\u00a7$3\u00a7$4\u00a7$5\u00a7$6");
 +            }
-+            if (bukkitPlayer.hasPermission("magconch.anvil.format")) {
++            if (bukkitPlayer.hasPermission("magconch.anvil.format") || !bukkitPlayer.isPermissionSet("magconch.anvil.format")) {
 +                name = name.replaceAll("&([k-or])", "\u00a7$1");
 +            }
 +            component = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(name);
