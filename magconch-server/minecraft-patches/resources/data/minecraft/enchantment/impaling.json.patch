@@ -13,11 +13,3 @@
            }
          }
        }
-@@ -37,6 +_,6 @@
-   "slots": [
-     "mainhand"
-   ],
--  "supported_items": "#minecraft:enchantable/trident",
-+  "supported_items": "#minecraft:enchantable/impaling",
-   "weight": 2
- }

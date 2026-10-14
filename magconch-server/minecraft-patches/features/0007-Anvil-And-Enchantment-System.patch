@@ -4,18 +4,6 @@ Date: Wed, 14 Oct 2026 11:15:32 +0800
 Subject: [PATCH] Anvil And Enchantment System
 
 
-diff --git a/net/minecraft/data/tags/VanillaItemTagsProvider.java b/net/minecraft/data/tags/VanillaItemTagsProvider.java
-index a405f1900c45dd0868e42562178a849c231b01a3..41d4dcfb721c9c0d7ea71ab7a142a70bf12a90bf 100644
---- a/net/minecraft/data/tags/VanillaItemTagsProvider.java
-+++ b/net/minecraft/data/tags/VanillaItemTagsProvider.java
-@@ -401,6 +401,7 @@ public class VanillaItemTagsProvider extends TagsProvider<Item> {
-         this.tag(ItemTags.MINING_LOOT_ENCHANTABLE).addTag(ItemTags.AXES).addTag(ItemTags.PICKAXES).addTag(ItemTags.SHOVELS).addTag(ItemTags.HOES);
-         this.tag(ItemTags.FISHING_ENCHANTABLE).add(ItemIds.FISHING_ROD);
-         this.tag(ItemTags.TRIDENT_ENCHANTABLE).add(ItemIds.TRIDENT);
-+        this.tag(ItemTags.IMPALING_ENCHANTABLE).addTag(ItemTags.TRIDENT_ENCHANTABLE).addTag(ItemTags.SPEARS); // magconch - adjust enchantment: impaling supports spear
-         this.tag(ItemTags.LUNGE_ENCHANTABLE).addTag(ItemTags.SPEARS);
-         this.tag(ItemTags.DURABILITY_ENCHANTABLE)
-             .addTag(ItemTags.FOOT_ARMOR)
 diff --git a/net/minecraft/server/level/TicketType.java b/net/minecraft/server/level/TicketType.java
 index fed2a68bf1a9e9a169c0235e129346b9b624170b..406998338ab834b7f0ee4614d78d8a3cef486554 100644
 --- a/net/minecraft/server/level/TicketType.java
@@ -28,18 +16,6 @@ index fed2a68bf1a9e9a169c0235e129346b9b624170b..406998338ab834b7f0ee4614d78d8a3c
      public static final TicketType UNKNOWN = register("unknown", 1L, FLAG_CAN_EXPIRE_IF_UNLOADED | FLAG_LOADING);
      public static final TicketType PLUGIN = register("plugin", NO_TIMEOUT, FLAG_LOADING | FLAG_SIMULATION); // CraftBukkit
      public static final TicketType POST_TELEPORT = register("post_teleport", 5L, FLAG_LOADING | FLAG_SIMULATION); // Paper
-diff --git a/net/minecraft/tags/ItemTags.java b/net/minecraft/tags/ItemTags.java
-index aa20e6f622fca4e0844b07a42a5c1799adb13131..544dfe82b9ea383a5a693d6fab7a6536d7a9be3d 100644
---- a/net/minecraft/tags/ItemTags.java
-+++ b/net/minecraft/tags/ItemTags.java
-@@ -215,6 +215,7 @@ public final class ItemTags {
-     public static final TagKey<Item> MINING_LOOT_ENCHANTABLE = bind("enchantable/mining_loot");
-     public static final TagKey<Item> FISHING_ENCHANTABLE = bind("enchantable/fishing");
-     public static final TagKey<Item> TRIDENT_ENCHANTABLE = bind("enchantable/trident");
-+    public static final TagKey<Item> IMPALING_ENCHANTABLE = bind("enchantable/impaling"); // magconch - adjust enchantment
-     public static final TagKey<Item> LUNGE_ENCHANTABLE = bind("enchantable/lunge");
-     public static final TagKey<Item> DURABILITY_ENCHANTABLE = bind("enchantable/durability");
-     public static final TagKey<Item> BOW_ENCHANTABLE = bind("enchantable/bow");
 diff --git a/net/minecraft/world/damagesource/CombatRules.java b/net/minecraft/world/damagesource/CombatRules.java
 index 9cc810a308c9b9581ced90e31afc36f5f39bb950..d8a65bf84303a9c6e7891b5394fa0462de14dfde 100644
 --- a/net/minecraft/world/damagesource/CombatRules.java
@@ -408,7 +384,7 @@ index 078ebe71a4a5648eb3152e218cd4bb7d99f6a6c9..76c17d78e7f2b3f3cbf67590f3440eec
 +    // magconch end - adjust enchantment
  }
 diff --git a/net/minecraft/world/item/enchantment/Enchantments.java b/net/minecraft/world/item/enchantment/Enchantments.java
-index 0b8c345693e682aff509f9ca1febc42e8c2480d4..202eab6485c764f433dcb172d2bb64e8c8d2de4c 100644
+index 0b8c345693e682aff509f9ca1febc42e8c2480d4..f7f160fcdede30e5be8428b851327fc5706b8b61 100644
 --- a/net/minecraft/world/item/enchantment/Enchantments.java
 +++ b/net/minecraft/world/item/enchantment/Enchantments.java
 @@ -4,6 +4,7 @@ import java.util.List;
@@ -474,15 +450,6 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..202eab6485c764f433dcb172d2bb64e8
                  .withEffect(
                      EnchantmentEffectComponents.AMMO_USE,
                      new SetValue(LevelBasedValue.constant(0.0F)),
-@@ -974,7 +978,7 @@ public class Enchantments {
-             IMPALING,
-             Enchantment.enchantment(
-                     Enchantment.definition(
--                        items.getOrThrow(ItemTags.TRIDENT_ENCHANTABLE),
-+                        items.getOrThrow(ItemTags.IMPALING_ENCHANTABLE), // magconch - adjust enchantment: supports spear
-                         2,
-                         5,
-                         Enchantment.dynamicCost(1, 8),
 @@ -989,7 +993,9 @@ public class Enchantments {
                      new AddValue(LevelBasedValue.perLevel(2.5F)),
                      LootItemEntityPropertyCondition.hasProperties(

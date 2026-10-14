@@ -1,9 +1,0 @@
---- /dev/null
-+++ b/data/minecraft/tags/item/enchantable/impaling.json
-@@ -1,0 +_,6 @@
-+{
-+  "values": [
-+    "#minecraft:enchantable/trident",
-+    "#minecraft:spears"
-+  ]
-+}
