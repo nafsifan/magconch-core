@@ -1,0 +1,521 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Wed, 14 Oct 2026 11:15:32 +0800
+Subject: [PATCH] Anvil And Enchantment System
+
+
+diff --git a/net/minecraft/data/tags/VanillaItemTagsProvider.java b/net/minecraft/data/tags/VanillaItemTagsProvider.java
+index a405f1900c45dd0868e42562178a849c231b01a3..41d4dcfb721c9c0d7ea71ab7a142a70bf12a90bf 100644
+--- a/net/minecraft/data/tags/VanillaItemTagsProvider.java
++++ b/net/minecraft/data/tags/VanillaItemTagsProvider.java
+@@ -401,6 +401,7 @@ public class VanillaItemTagsProvider extends TagsProvider<Item> {
+         this.tag(ItemTags.MINING_LOOT_ENCHANTABLE).addTag(ItemTags.AXES).addTag(ItemTags.PICKAXES).addTag(ItemTags.SHOVELS).addTag(ItemTags.HOES);
+         this.tag(ItemTags.FISHING_ENCHANTABLE).add(ItemIds.FISHING_ROD);
+         this.tag(ItemTags.TRIDENT_ENCHANTABLE).add(ItemIds.TRIDENT);
++        this.tag(ItemTags.IMPALING_ENCHANTABLE).addTag(ItemTags.TRIDENT_ENCHANTABLE).addTag(ItemTags.SPEARS); // magconch - adjust enchantment: impaling supports spear
+         this.tag(ItemTags.LUNGE_ENCHANTABLE).addTag(ItemTags.SPEARS);
+         this.tag(ItemTags.DURABILITY_ENCHANTABLE)
+             .addTag(ItemTags.FOOT_ARMOR)
+diff --git a/net/minecraft/server/level/TicketType.java b/net/minecraft/server/level/TicketType.java
+index fed2a68bf1a9e9a169c0235e129346b9b624170b..406998338ab834b7f0ee4614d78d8a3cef486554 100644
+--- a/net/minecraft/server/level/TicketType.java
++++ b/net/minecraft/server/level/TicketType.java
+@@ -62,6 +62,7 @@ public final class TicketType<T> implements ca.spottedleaf.moonrise.patches.chun
+     public static final TicketType FORCED = register("forced", NO_TIMEOUT, FLAG_PERSIST | FLAG_LOADING | FLAG_SIMULATION | FLAG_KEEP_DIMENSION_ACTIVE);
+     public static final TicketType PORTAL = register("portal", 300L, FLAG_PERSIST | FLAG_LOADING | FLAG_SIMULATION | FLAG_KEEP_DIMENSION_ACTIVE);
+     public static final TicketType ENDER_PEARL = register("ender_pearl", 40L, FLAG_LOADING | FLAG_SIMULATION | FLAG_KEEP_DIMENSION_ACTIVE);
++    public static final TicketType TRIDENT = register("trident", 40L, FLAG_LOADING | FLAG_SIMULATION | FLAG_KEEP_DIMENSION_ACTIVE); // magconch - adjust enchantment
+     public static final TicketType UNKNOWN = register("unknown", 1L, FLAG_CAN_EXPIRE_IF_UNLOADED | FLAG_LOADING);
+     public static final TicketType PLUGIN = register("plugin", NO_TIMEOUT, FLAG_LOADING | FLAG_SIMULATION); // CraftBukkit
+     public static final TicketType POST_TELEPORT = register("post_teleport", 5L, FLAG_LOADING | FLAG_SIMULATION); // Paper
+diff --git a/net/minecraft/tags/ItemTags.java b/net/minecraft/tags/ItemTags.java
+index aa20e6f622fca4e0844b07a42a5c1799adb13131..544dfe82b9ea383a5a693d6fab7a6536d7a9be3d 100644
+--- a/net/minecraft/tags/ItemTags.java
++++ b/net/minecraft/tags/ItemTags.java
+@@ -215,6 +215,7 @@ public final class ItemTags {
+     public static final TagKey<Item> MINING_LOOT_ENCHANTABLE = bind("enchantable/mining_loot");
+     public static final TagKey<Item> FISHING_ENCHANTABLE = bind("enchantable/fishing");
+     public static final TagKey<Item> TRIDENT_ENCHANTABLE = bind("enchantable/trident");
++    public static final TagKey<Item> IMPALING_ENCHANTABLE = bind("enchantable/impaling"); // magconch - adjust enchantment
+     public static final TagKey<Item> LUNGE_ENCHANTABLE = bind("enchantable/lunge");
+     public static final TagKey<Item> DURABILITY_ENCHANTABLE = bind("enchantable/durability");
+     public static final TagKey<Item> BOW_ENCHANTABLE = bind("enchantable/bow");
+diff --git a/net/minecraft/world/damagesource/CombatRules.java b/net/minecraft/world/damagesource/CombatRules.java
+index 9cc810a308c9b9581ced90e31afc36f5f39bb950..d8a65bf84303a9c6e7891b5394fa0462de14dfde 100644
+--- a/net/minecraft/world/damagesource/CombatRules.java
++++ b/net/minecraft/world/damagesource/CombatRules.java
+@@ -32,7 +32,11 @@ public class CombatRules {
+     }
+ 
+     public static float getDamageAfterMagicAbsorb(final float damage, final float totalMagicArmor) {
+-        float realArmor = Mth.clamp(totalMagicArmor, 0.0F, 20.0F);
+-        return damage * (1.0F - realArmor / 25.0F);
++        // magconch start - adjust enchantment: 平滑双曲衰减公式，消除 80% 硬上限
++        if (totalMagicArmor > 0.0F) {
++            return damage * (1.0F - (totalMagicArmor / (totalMagicArmor + 20.0F)));
++        }
++        return damage;
++        // magconch end - adjust enchantment
+     }
+ }
+diff --git a/net/minecraft/world/entity/ExperienceOrb.java b/net/minecraft/world/entity/ExperienceOrb.java
+index 9854c8f423182c4fb09b58bc0dc5ef77da909107..4d527bcc5e35d18acdb29a621441f3a703bc8888 100644
+--- a/net/minecraft/world/entity/ExperienceOrb.java
++++ b/net/minecraft/world/entity/ExperienceOrb.java
+@@ -374,6 +374,19 @@ public class ExperienceOrb extends Entity {
+         Optional<EnchantedItemInUse> selected = EnchantmentHelper.getRandomItemWith(EnchantmentEffectComponents.REPAIR_WITH_XP, player, ItemStack::isDamaged);
+         if (selected.isPresent()) {
+             ItemStack itemStack = selected.get().itemStack();
++            // magconch start - adjust enchantment: 按经验修补等级概率修复，未触发则经验全额归玩家
++            int level = 0;
++            net.minecraft.world.item.enchantment.ItemEnchantments enchantments = itemStack.getOrDefault(net.minecraft.core.component.DataComponents.ENCHANTMENTS, net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
++            for (net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder : enchantments.keySet()) {
++                if (holder.is(net.minecraft.world.item.enchantment.Enchantments.MENDING)) {
++                    level = enchantments.getLevel(holder);
++                    break;
++                }
++            }
++            if (player.getRandom().nextInt(10) >= level) {
++                return amount;
++            }
++            // magconch end - adjust enchantment
+             int toRepairFromXpAmount = EnchantmentHelper.modifyDurabilityToRepairFromXp(player.level(), itemStack, amount);
+             int repair = Math.min(toRepairFromXpAmount, itemStack.getDamageValue());
+             // CraftBukkit start
+diff --git a/net/minecraft/world/entity/LightningBolt.java b/net/minecraft/world/entity/LightningBolt.java
+index c756d28b396520264336832f17527981248556f3..1a0a688cc492f7cbcd25387edaf2b28a4e303c3d 100644
+--- a/net/minecraft/world/entity/LightningBolt.java
++++ b/net/minecraft/world/entity/LightningBolt.java
+@@ -41,6 +41,7 @@ public class LightningBolt extends Entity {
+     private final Set<Entity> hitEntities = Sets.newHashSet();
+     private int blocksSetOnFire;
+     public boolean isEffect; // Paper - Properly handle lightning effects api
++    public int times = 1; // magconch - adjust enchantment
+ 
+     public LightningBolt(final EntityType<? extends LightningBolt> type, final Level level) {
+         super(type, level);
+@@ -133,6 +134,20 @@ public class LightningBolt extends Entity {
+                     }
+                 }
+ 
++                // magconch start - adjust enchantment: 多段雷电
++                if (this.times > 1) {
++                    LightningBolt entitylightning = EntityTypes.LIGHTNING_BOLT.create(this.level(), EntitySpawnReason.TRIGGERED);
++                    if (entitylightning != null) {
++                        entitylightning.visualOnly = this.visualOnly;
++                        entitylightning.cause = this.cause;
++                        entitylightning.isEffect = this.isEffect;
++                        entitylightning.times = --this.times;
++                        entitylightning.snapTo(this.position());
++                        ((ServerLevel) this.level()).strikeLightning(entitylightning);
++                    }
++                }
++                // magconch end - adjust enchantment
++
+                 this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.DESPAWN); // CraftBukkit - add Bukkit remove cause
+             } else if (this.life < -this.random.nextInt(10)) {
+                 this.flashes--;
+diff --git a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
+index 82f279c48cf3da6856ad96f753ee1a36dde9c725..e3517b53c28f2c7a2872f8fbbdb78faa2313b201 100644
+--- a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
++++ b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
+@@ -497,6 +497,21 @@ public abstract class AbstractArrow extends Projectile {
+         if (this.isOnFire()) {
+             // CraftBukkit start
+             org.bukkit.event.entity.EntityCombustByEntityEvent combustEvent = new org.bukkit.event.entity.EntityCombustByEntityEvent(this.getBukkitEntity(), entity.getBukkitEntity(), 5.0F);
++            // magconch start - adjust enchantment: flame level 2 double burn duration
++            if (this.getWeaponItem() != null) {
++                int flameLevel = 0;
++                net.minecraft.world.item.enchantment.ItemEnchantments enchantments = this.getWeaponItem().getOrDefault(net.minecraft.core.component.DataComponents.ENCHANTMENTS, net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
++                for (net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder : enchantments.keySet()) {
++                    if (holder.is(net.minecraft.world.item.enchantment.Enchantments.FLAME)) {
++                        flameLevel = enchantments.getLevel(holder);
++                        break;
++                    }
++                }
++                if (flameLevel > 1) {
++                    combustEvent.setDuration(combustEvent.getDuration() * flameLevel);
++                }
++            }
++            // magconch end - adjust enchantment
+             if (combustEvent.callEvent()) {
+                 entity.igniteForSeconds(combustEvent.getDuration(), false);
+             }
+diff --git a/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java b/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
+index 409fd5afe319cad4f1e92d9da080f000ff28c951..34eb72c369f663d87bca41fb1d3d86fb3561acee 100644
+--- a/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
++++ b/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
+@@ -35,6 +35,8 @@ public class ThrownTrident extends AbstractArrow {
+     private static final boolean DEFAULT_DEALT_DAMAGE = false;
+     public boolean dealtDamage = false;
+     public int clientSideReturnTridentTickCount;
++    private long ticketTimer = 0L; // magconch - adjust enchantment
++    private net.minecraft.world.phys.AABB ticketCheck; // magconch - optimize entity behavior
+ 
+     public ThrownTrident(final EntityType<? extends ThrownTrident> type, final Level level) {
+         super(type, level);
+@@ -55,6 +57,7 @@ public class ThrownTrident extends AbstractArrow {
+     // Paper start - Allow trident custom damage
+     {
+         this.setBaseDamage(net.minecraft.world.item.TridentItem.BASE_DAMAGE);
++        this.ticketCheck = new net.minecraft.world.phys.AABB(this.blockPosition()); // magconch - optimize entity behavior
+     }
+     // Paper end - Allow trident custom damage
+ 
+@@ -68,9 +71,15 @@ public class ThrownTrident extends AbstractArrow {
+     @Override
+     public void tick() {
+         if (this.inGroundTime > 4) {
++            if (!this.dealtDamage) this.ticketCheck = new net.minecraft.world.phys.AABB(this.blockPosition()); // magconch - optimize entity behavior
+             this.dealtDamage = true;
+         }
+ 
++        // magconch start - adjust enchantment
++        int sectionPosX = net.minecraft.core.SectionPos.blockToSectionCoord(this.position().x());
++        int sectionPosZ = net.minecraft.core.SectionPos.blockToSectionCoord(this.position().z());
++        // magconch end - adjust enchantment
++
+         Entity currentOwner = this.getOwner();
+         int loyalty = this.entityData.get(ID_LOYALTY);
+         if (loyalty > 0 && (this.dealtDamage || this.isNoPhysics()) && currentOwner != null) {
+@@ -100,6 +109,23 @@ public class ThrownTrident extends AbstractArrow {
+         }
+ 
+         super.tick();
++
++        // magconch start - adjust enchantment: 保持返航三叉戟所在区块加载
++        if (this.isAlive() && loyalty > 0) {
++            net.minecraft.core.BlockPos blockPos = net.minecraft.core.BlockPos.containing(this.position());
++            if ((
++                        --this.ticketTimer <= 0L
++                        || sectionPosX != net.minecraft.core.SectionPos.blockToSectionCoord(blockPos.getX())
++                        || sectionPosZ != net.minecraft.core.SectionPos.blockToSectionCoord(blockPos.getZ())
++                )
++                && currentOwner instanceof ServerPlayer) {
++                if (!this.ticketCheck.contains(blockPos.getX(), blockPos.getY(), blockPos.getZ())) {
++                    this.ticketCheck = this.ticketCheck.minmax(new net.minecraft.world.phys.AABB(blockPos));
++                    this.ticketTimer = this.updateTridentTicket();
++                }
++            }
++        }
++        // magconch end - adjust enchantment
+     }
+ 
+     private boolean isAcceptibleReturnOwner() {
+@@ -153,6 +179,7 @@ public class ThrownTrident extends AbstractArrow {
+                 EnchantmentHelper.doPostAttackEffectsWithItemSourceOnBreak(
+                     serverLevel, entity, damageSource, this.getWeaponItem(), weapon -> this.kill(serverLevel)
+                 );
++                this.changeLightningTimes(entity.getX(), entity.getY(), entity.getZ()); // magconch - adjust enchantment
+             }
+ 
+             if (entity instanceof LivingEntity mob) {
+@@ -180,6 +207,7 @@ public class ThrownTrident extends AbstractArrow {
+             level.getBlockState(hitResult.getBlockPos()),
+             item -> this.kill(level)
+         );
++        this.changeLightningTimes(compensatedHitPosition.x(), compensatedHitPosition.y(), compensatedHitPosition.z()); // magconch - adjust enchantment
+     }
+ 
+     @Override
+@@ -245,4 +273,48 @@ public class ThrownTrident extends AbstractArrow {
+     public boolean shouldRender(final double camX, final double camY, final double camZ) {
+         return true;
+     }
++
++    // magconch start - adjust enchantment
++    private void changeLightningTimes(double x, double y, double z) {
++        if (this.getWeaponItem() != null) {
++            int channeling = 0;
++            net.minecraft.world.item.enchantment.ItemEnchantments enchantments = this.getWeaponItem().getOrDefault(net.minecraft.core.component.DataComponents.ENCHANTMENTS, net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
++            for (net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder : enchantments.keySet()) {
++                if (holder.is(net.minecraft.world.item.enchantment.Enchantments.CHANNELING)) {
++                    channeling = enchantments.getLevel(holder);
++                    break;
++                }
++            }
++            if (channeling > 1) {
++                java.util.List<net.minecraft.world.entity.LightningBolt> list = com.google.common.collect.Lists.newArrayList();
++                this.level().getEntities(EntityTypes.LIGHTNING_BOLT, new net.minecraft.world.phys.AABB(x, y, z, x, y, z).inflate(1.0E-5), lightningBolt -> {
++                    return lightningBolt.tickCount == 0 && lightningBolt.times == 1;
++                }, list, 1);
++                if (!list.isEmpty()) {
++                    list.getFirst().times = channeling;
++                }
++            }
++        }
++    }
++
++    public long updateTridentTicket() {
++        if (this.level() instanceof ServerLevel serverLevel) {
++            net.minecraft.world.level.ChunkPos chunkPos = this.chunkPosition();
++            serverLevel.resetEmptyTime();
++            serverLevel.getChunkSource().addTicketWithRadius(net.minecraft.server.level.TicketType.TRIDENT, chunkPos, 2);
++            return net.minecraft.server.level.TicketType.TRIDENT.timeout() - 1L;
++        }
++        return 0L;
++    }
++
++    @Override
++    protected void onBelowWorld() {
++        if (this.getLoyalty() > 0) {
++            if (!this.dealtDamage) this.ticketCheck = new net.minecraft.world.phys.AABB(this.blockPosition());
++            this.dealtDamage = true;
++        } else {
++            super.onBelowWorld();
++        }
++    }
++    // magconch end - adjust enchantment
+ }
+diff --git a/net/minecraft/world/inventory/AnvilMenu.java b/net/minecraft/world/inventory/AnvilMenu.java
+index a577225f59bb562b860cb90db72b4d658a69956f..07d5158321eedb37d109ac02f294db22332b0876 100644
+--- a/net/minecraft/world/inventory/AnvilMenu.java
++++ b/net/minecraft/world/inventory/AnvilMenu.java
+@@ -107,7 +107,7 @@ public class AnvilMenu extends ItemCombinerMenu {
+         this.inputSlots.setItem(0, ItemStack.EMPTY);
+         this.access.execute((level, pos) -> {
+             BlockState state = level.getBlockState(pos);
+-            if (!player.hasInfiniteMaterials() && state.is(BlockTags.ANVIL) && player.getRandom().nextFloat() < 0.12F) {
++            if (false && !player.hasInfiniteMaterials() && state.is(BlockTags.ANVIL) && player.getRandom().nextFloat() < 0.12F) { // magconch - anvil adjust: prevent anvil break
+                 BlockState newBlockState = AnvilBlock.damage(state);
+                 // Paper start - AnvilDamageEvent
+                 com.destroystokyo.paper.event.block.AnvilDamagedEvent event = new com.destroystokyo.paper.event.block.AnvilDamagedEvent(getBukkitView(), newBlockState != null ? newBlockState.asBlockData() : null);
+@@ -140,11 +140,13 @@ public class AnvilMenu extends ItemCombinerMenu {
+         int price = 0;
+         long tax = 0L;
+         int namingCost = 0;
++        boolean allowZeroLevel = false; // magconch - anvil adjust
+         if (!input.isEmpty() && EnchantmentHelper.canStoreEnchantments(input)) {
+             ItemStack result = input.copy();
+             ItemStack addition = this.inputSlots.getItem(1);
+             ItemEnchantments.Mutable enchantments = new ItemEnchantments.Mutable(EnchantmentHelper.getEnchantmentsForCrafting(result));
+             tax += (long)input.getOrDefault(DataComponents.REPAIR_COST, 0).intValue() + addition.getOrDefault(DataComponents.REPAIR_COST, 0).intValue();
++            tax = Math.min(tax, 31L); // magconch - anvil adjust: cap cumulative cost at 31
+             this.repairItemCountCost = 0;
+             if (!addition.isEmpty()) {
+                 boolean usingBook = addition.has(DataComponents.STORED_ENCHANTMENTS);
+@@ -161,6 +163,10 @@ public class AnvilMenu extends ItemCombinerMenu {
+                         int resultDamage = result.getDamageValue() - repairAmount;
+                         result.setDamageValue(resultDamage);
+                         price++;
++                        // magconch start - anvil adjust: repair free
++                        allowZeroLevel = true;
++                        price--;
++                        // magconch end - anvil adjust
+                         repairAmount = Math.min(result.getDamageValue(), result.getMaxDamage() / 4);
+                     }
+ 
+@@ -243,21 +249,29 @@ public class AnvilMenu extends ItemCombinerMenu {
+                 if (!this.itemName.equals(input.getHoverName().getString())) {
+                     namingCost = 1;
+                     price += namingCost;
++                    // magconch start - anvil adjust: rename free
++                    allowZeroLevel = true;
++                    price -= namingCost;
++                    // magconch end - anvil adjust
+                     result.set(DataComponents.CUSTOM_NAME, Component.literal(this.itemName));
+                 }
+             } else if (input.has(DataComponents.CUSTOM_NAME)) {
+                 namingCost = 1;
+                 price += namingCost;
++                // magconch start - anvil adjust: rename free
++                allowZeroLevel = true;
++                price -= namingCost;
++                // magconch end - anvil adjust
+                 result.remove(DataComponents.CUSTOM_NAME);
+             }
+ 
+             int finalPrice = price <= 0 ? 0 : (int)Mth.clamp(tax + price, 0L, 2147483647L);
+             this.cost.set(finalPrice);
+-            if (price <= 0) {
++            if (price < 0 || (price == 0 && !allowZeroLevel)) { // magconch - anvil adjust
+                 result = ItemStack.EMPTY;
+             }
+ 
+-            if (namingCost == price && namingCost > 0) {
++            if ((namingCost == price || price == 0) && namingCost > 0) { // magconch - anvil adjust
+                 // CraftBukkit start
+                 if (this.cost.get() >= this.maximumRepairCost) {
+                     this.cost.set(this.maximumRepairCost - 1);
+@@ -278,6 +292,7 @@ public class AnvilMenu extends ItemCombinerMenu {
+                 }
+ 
+                 if (namingCost != price || namingCost == 0) {
++                    if (this.cost.get() != 0) // magconch - anvil adjust: 不消耗等级不增加惩罚
+                     baseCost = calculateIncreasedRepairCost(baseCost);
+                 }
+ 
+diff --git a/net/minecraft/world/item/TridentItem.java b/net/minecraft/world/item/TridentItem.java
+index 078ebe71a4a5648eb3152e218cd4bb7d99f6a6c9..76c17d78e7f2b3f3cbf67590f3440eec9d8b9d74 100644
+--- a/net/minecraft/world/item/TridentItem.java
++++ b/net/minecraft/world/item/TridentItem.java
+@@ -71,7 +71,7 @@ public class TridentItem extends Item implements ProjectileItem {
+             }
+ 
+             float riptideStrength = EnchantmentHelper.getTridentSpinAttackStrength(itemStack, player);
+-            if (!(riptideStrength > 0.0F) || player.isInWaterOrRain() && !player.isPassenger()) {
++            if (!(riptideStrength > 0.0F) || (player.isInWaterOrRain() || isSnowingAt(level, player.blockPosition())) && !player.isPassenger()) { // magconch - adjust enchantment: allow riptide in snow
+                 if (itemStack.nextDamageWillBreak()) {
+                     return false;
+                 }
+@@ -153,7 +153,7 @@ public class TridentItem extends Item implements ProjectileItem {
+             return InteractionResult.FAIL;
+         }
+ 
+-        if (EnchantmentHelper.getTridentSpinAttackStrength(itemInHand, player) > 0.0F && !player.isInWaterOrRain()) {
++        if (EnchantmentHelper.getTridentSpinAttackStrength(itemInHand, player) > 0.0F && !player.isInWaterOrRain() && !isSnowingAt(level, player.blockPosition())) { // magconch - adjust enchantment: allow riptide in snow
+             return InteractionResult.FAIL;
+         }
+ 
+@@ -167,4 +167,10 @@ public class TridentItem extends Item implements ProjectileItem {
+         trident.pickup = AbstractArrow.Pickup.ALLOWED;
+         return trident;
+     }
++
++    // magconch start - adjust enchantment: allow riptide in snow weather
++    private static boolean isSnowingAt(Level level, net.minecraft.core.BlockPos pos) {
++        return level.isRaining() && level.canSeeSky(pos) && level.precipitationAt(pos) == net.minecraft.world.level.biome.Biome.Precipitation.SNOW;
++    }
++    // magconch end - adjust enchantment
+ }
+diff --git a/net/minecraft/world/item/enchantment/Enchantments.java b/net/minecraft/world/item/enchantment/Enchantments.java
+index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c19cf841f 100644
+--- a/net/minecraft/world/item/enchantment/Enchantments.java
++++ b/net/minecraft/world/item/enchantment/Enchantments.java
+@@ -4,6 +4,7 @@ import java.util.List;
+ import java.util.Optional;
+ import java.util.function.Function;
+ import net.minecraft.advancements.predicates.DamageSourcePredicate;
++import net.minecraft.advancements.predicates.FluidPredicate; // magconch - adjust enchantment
+ import net.minecraft.advancements.predicates.FoodPredicate;
+ import net.minecraft.advancements.predicates.GameTypePredicate;
+ import net.minecraft.advancements.predicates.ItemPredicate;
+@@ -29,6 +30,7 @@ import net.minecraft.tags.BlockTags;
+ import net.minecraft.tags.DamageTypeTags;
+ import net.minecraft.tags.EnchantmentTags;
+ import net.minecraft.tags.EntityTypeTags;
++import net.minecraft.tags.FluidTags; // magconch - adjust enchantment
+ import net.minecraft.tags.ItemTags;
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.random.WeightedList;
+@@ -68,6 +70,7 @@ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.Block;
+ import net.minecraft.world.level.block.Blocks;
+ import net.minecraft.world.level.gameevent.GameEvent;
++import net.minecraft.world.level.material.Fluid; // magconch - adjust enchantment
+ import net.minecraft.world.level.levelgen.blockpredicates.BlockPredicate;
+ import net.minecraft.world.level.levelgen.feature.stateproviders.BlockStateProvider;
+ import net.minecraft.world.level.material.Fluids;
+@@ -136,6 +139,7 @@ public class Enchantments {
+         HolderGetter<Item> items = context.lookup(Registries.ITEM);
+         HolderGetter<Block> blocks = context.lookup(Registries.BLOCK);
+         HolderGetter<EntityType<?>> entityTypes = context.lookup(Registries.ENTITY_TYPE);
++        HolderGetter<Fluid> fluids = context.lookup(Registries.FLUID); // magconch - adjust enchantment
+         register(
+             context,
+             PROTECTION,
+@@ -307,9 +311,9 @@ public class Enchantments {
+                     Enchantment.definition(
+                         items.getOrThrow(ItemTags.HEAD_ARMOR_ENCHANTABLE),
+                         2,
+-                        1,
+-                        Enchantment.constantCost(1),
+-                        Enchantment.constantCost(41),
++                        4, // magconch - adjust enchantment: 4 levels
++                        Enchantment.dynamicCost(1, 10), // magconch - adjust enchantment
++                        Enchantment.dynamicCost(41, 20), // magconch - adjust enchantment
+                         4,
+                         EquipmentSlotGroup.HEAD
+                     )
+@@ -891,9 +895,9 @@ public class Enchantments {
+                     Enchantment.definition(
+                         items.getOrThrow(ItemTags.BOW_ENCHANTABLE),
+                         2,
+-                        1,
+-                        Enchantment.constantCost(20),
+-                        Enchantment.constantCost(50),
++                        2, // magconch - adjust enchantment: 2 levels
++                        Enchantment.dynamicCost(20, 10), // magconch - adjust enchantment
++                        Enchantment.dynamicCost(50, 25), // magconch - adjust enchantment
+                         4,
+                         EquipmentSlotGroup.MAINHAND
+                     )
+@@ -907,18 +911,17 @@ public class Enchantments {
+                     Enchantment.definition(
+                         items.getOrThrow(ItemTags.BOW_ENCHANTABLE),
+                         1,
+-                        1,
+-                        Enchantment.constantCost(20),
+-                        Enchantment.constantCost(50),
++                        5, // magconch - adjust enchantment: 5 levels
++                        Enchantment.dynamicCost(10, 10), // magconch - adjust enchantment
++                        Enchantment.dynamicCost(25, 15), // magconch - adjust enchantment
+                         8,
+                         EquipmentSlotGroup.MAINHAND
+                     )
+                 )
+-                .exclusiveWith(enchantments.getOrThrow(EnchantmentTags.BOW_EXCLUSIVE))
++                // magconch - adjust enchantment: allow infinity and mending coexistence by removing exclusiveWith
+                 .withEffect(
+                     EnchantmentEffectComponents.AMMO_USE,
+-                    new SetValue(LevelBasedValue.constant(0.0F)),
+-                    MatchTool.toolMatches(ItemPredicate.Builder.item().of(items, Items.ARROW))
++                    new RemoveBinomial(LevelBasedValue.perLevel(0.1F)) // magconch - adjust enchantment: 10% chance per level not consuming arrow
+                 )
+         );
+         register(
+@@ -974,7 +977,7 @@ public class Enchantments {
+             IMPALING,
+             Enchantment.enchantment(
+                     Enchantment.definition(
+-                        items.getOrThrow(ItemTags.TRIDENT_ENCHANTABLE),
++                        items.getOrThrow(ItemTags.IMPALING_ENCHANTABLE), // magconch - adjust enchantment: supports spear
+                         2,
+                         5,
+                         Enchantment.dynamicCost(1, 8),
+@@ -989,7 +992,9 @@ public class Enchantments {
+                     new AddValue(LevelBasedValue.perLevel(2.5F)),
+                     LootItemEntityPropertyCondition.hasProperties(
+                         LootContext.EntityTarget.THIS,
+-                        EntityPredicate.Builder.entity().entityType(EntityTypePredicate.of(entityTypes, EntityTypeTags.SENSITIVE_TO_IMPALING)).build()
++                        EntityPredicate.Builder.entity().located(
++                            LocationPredicate.Builder.location().setFluid(FluidPredicate.Builder.fluid().of(fluids.getOrThrow(FluidTags.WATER)))
++                        ) // magconch - adjust enchantment: works on any entity in water
+                     )
+                 )
+         );
+@@ -1081,9 +1086,9 @@ public class Enchantments {
+                     Enchantment.definition(
+                         items.getOrThrow(ItemTags.TRIDENT_ENCHANTABLE),
+                         1,
+-                        1,
+-                        Enchantment.constantCost(25),
+-                        Enchantment.constantCost(50),
++                        3, // magconch - adjust enchantment: 3 levels
++                        Enchantment.dynamicCost(25, 10), // magconch - adjust enchantment
++                        Enchantment.dynamicCost(50, 25), // magconch - adjust enchantment
+                         8,
+                         EquipmentSlotGroup.MAINHAND
+                     )
+@@ -1132,9 +1137,9 @@ public class Enchantments {
+                     Enchantment.definition(
+                         items.getOrThrow(ItemTags.CROSSBOW_ENCHANTABLE),
+                         2,
+-                        1,
+-                        Enchantment.constantCost(20),
+-                        Enchantment.constantCost(50),
++                        2, // magconch - adjust enchantment: 2 levels
++                        Enchantment.dynamicCost(20, 10), // magconch - adjust enchantment
++                        Enchantment.dynamicCost(50, 25), // magconch - adjust enchantment
+                         4,
+                         EquipmentSlotGroup.MAINHAND
+                     )
+@@ -1272,7 +1277,7 @@ public class Enchantments {
+                     Enchantment.definition(
+                         items.getOrThrow(ItemTags.DURABILITY_ENCHANTABLE),
+                         2,
+-                        1,
++                        3, // magconch - adjust enchantment: 3 levels
+                         Enchantment.dynamicCost(25, 25),
+                         Enchantment.dynamicCost(75, 25),
+                         4,
