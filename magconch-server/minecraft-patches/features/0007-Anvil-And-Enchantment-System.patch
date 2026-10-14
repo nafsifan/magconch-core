@@ -58,30 +58,6 @@ index 9cc810a308c9b9581ced90e31afc36f5f39bb950..d8a65bf84303a9c6e7891b5394fa0462
 +        // magconch end - adjust enchantment
      }
  }
-diff --git a/net/minecraft/world/entity/ExperienceOrb.java b/net/minecraft/world/entity/ExperienceOrb.java
-index 9854c8f423182c4fb09b58bc0dc5ef77da909107..4d527bcc5e35d18acdb29a621441f3a703bc8888 100644
---- a/net/minecraft/world/entity/ExperienceOrb.java
-+++ b/net/minecraft/world/entity/ExperienceOrb.java
-@@ -374,6 +374,19 @@ public class ExperienceOrb extends Entity {
-         Optional<EnchantedItemInUse> selected = EnchantmentHelper.getRandomItemWith(EnchantmentEffectComponents.REPAIR_WITH_XP, player, ItemStack::isDamaged);
-         if (selected.isPresent()) {
-             ItemStack itemStack = selected.get().itemStack();
-+            // magconch start - adjust enchantment: 按经验修补等级概率修复，未触发则经验全额归玩家
-+            int level = 0;
-+            net.minecraft.world.item.enchantment.ItemEnchantments enchantments = itemStack.getOrDefault(net.minecraft.core.component.DataComponents.ENCHANTMENTS, net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
-+            for (net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder : enchantments.keySet()) {
-+                if (holder.is(net.minecraft.world.item.enchantment.Enchantments.MENDING)) {
-+                    level = enchantments.getLevel(holder);
-+                    break;
-+                }
-+            }
-+            if (player.getRandom().nextInt(10) >= level) {
-+                return amount;
-+            }
-+            // magconch end - adjust enchantment
-             int toRepairFromXpAmount = EnchantmentHelper.modifyDurabilityToRepairFromXp(player.level(), itemStack, amount);
-             int repair = Math.min(toRepairFromXpAmount, itemStack.getDamageValue());
-             // CraftBukkit start
 diff --git a/net/minecraft/world/entity/LightningBolt.java b/net/minecraft/world/entity/LightningBolt.java
 index c756d28b396520264336832f17527981248556f3..1a0a688cc492f7cbcd25387edaf2b28a4e303c3d 100644
 --- a/net/minecraft/world/entity/LightningBolt.java
@@ -431,7 +407,7 @@ index 078ebe71a4a5648eb3152e218cd4bb7d99f6a6c9..76c17d78e7f2b3f3cbf67590f3440eec
 +    // magconch end - adjust enchantment
  }
 diff --git a/net/minecraft/world/item/enchantment/Enchantments.java b/net/minecraft/world/item/enchantment/Enchantments.java
-index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c19cf841f 100644
+index 0b8c345693e682aff509f9ca1febc42e8c2480d4..1d2cf923ddce3225fda8ca632bb53bff6e1fd76c 100644
 --- a/net/minecraft/world/item/enchantment/Enchantments.java
 +++ b/net/minecraft/world/item/enchantment/Enchantments.java
 @@ -4,6 +4,7 @@ import java.util.List;
@@ -466,19 +442,15 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
          register(
              context,
              PROTECTION,
-@@ -307,9 +311,9 @@ public class Enchantments {
-                     Enchantment.definition(
-                         items.getOrThrow(ItemTags.HEAD_ARMOR_ENCHANTABLE),
-                         2,
--                        1,
--                        Enchantment.constantCost(1),
--                        Enchantment.constantCost(41),
-+                        4, // magconch - adjust enchantment: 4 levels
-+                        Enchantment.dynamicCost(1, 10), // magconch - adjust enchantment
-+                        Enchantment.dynamicCost(41, 20), // magconch - adjust enchantment
-                         4,
-                         EquipmentSlotGroup.HEAD
+@@ -319,7 +323,7 @@ public class Enchantments {
+                     new EnchantmentAttributeEffect(
+                         Identifier.withDefaultNamespace("enchantment.aqua_affinity"),
+                         Attributes.SUBMERGED_MINING_SPEED,
+-                        LevelBasedValue.perLevel(4.0F),
++                        LevelBasedValue.constant(4.0F),
+                         AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL
                      )
+                 )
 @@ -891,9 +895,9 @@ public class Enchantments {
                      Enchantment.definition(
                          items.getOrThrow(ItemTags.BOW_ENCHANTABLE),
@@ -492,17 +464,7 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
                          4,
                          EquipmentSlotGroup.MAINHAND
                      )
-@@ -907,18 +911,17 @@ public class Enchantments {
-                     Enchantment.definition(
-                         items.getOrThrow(ItemTags.BOW_ENCHANTABLE),
-                         1,
--                        1,
--                        Enchantment.constantCost(20),
--                        Enchantment.constantCost(50),
-+                        5, // magconch - adjust enchantment: 5 levels
-+                        Enchantment.dynamicCost(10, 10), // magconch - adjust enchantment
-+                        Enchantment.dynamicCost(25, 15), // magconch - adjust enchantment
-                         8,
+@@ -914,7 +918,7 @@ public class Enchantments {
                          EquipmentSlotGroup.MAINHAND
                      )
                  )
@@ -510,13 +472,8 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
 +                // magconch - adjust enchantment: allow infinity and mending coexistence by removing exclusiveWith
                  .withEffect(
                      EnchantmentEffectComponents.AMMO_USE,
--                    new SetValue(LevelBasedValue.constant(0.0F)),
--                    MatchTool.toolMatches(ItemPredicate.Builder.item().of(items, Items.ARROW))
-+                    new RemoveBinomial(LevelBasedValue.perLevel(0.1F)) // magconch - adjust enchantment: 10% chance per level not consuming arrow
-                 )
-         );
-         register(
-@@ -974,7 +977,7 @@ public class Enchantments {
+                     new SetValue(LevelBasedValue.constant(0.0F)),
+@@ -974,7 +978,7 @@ public class Enchantments {
              IMPALING,
              Enchantment.enchantment(
                      Enchantment.definition(
@@ -525,7 +482,7 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
                          2,
                          5,
                          Enchantment.dynamicCost(1, 8),
-@@ -989,7 +992,9 @@ public class Enchantments {
+@@ -989,7 +993,9 @@ public class Enchantments {
                      new AddValue(LevelBasedValue.perLevel(2.5F)),
                      LootItemEntityPropertyCondition.hasProperties(
                          LootContext.EntityTarget.THIS,
@@ -536,7 +493,7 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
                      )
                  )
          );
-@@ -1081,9 +1086,9 @@ public class Enchantments {
+@@ -1081,9 +1087,9 @@ public class Enchantments {
                      Enchantment.definition(
                          items.getOrThrow(ItemTags.TRIDENT_ENCHANTABLE),
                          1,
@@ -549,7 +506,7 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
                          8,
                          EquipmentSlotGroup.MAINHAND
                      )
-@@ -1132,9 +1137,9 @@ public class Enchantments {
+@@ -1132,9 +1138,9 @@ public class Enchantments {
                      Enchantment.definition(
                          items.getOrThrow(ItemTags.CROSSBOW_ENCHANTABLE),
                          2,
@@ -562,7 +519,7 @@ index 0b8c345693e682aff509f9ca1febc42e8c2480d4..e62c83dc6df9dfadba1df58c5106381c
                          4,
                          EquipmentSlotGroup.MAINHAND
                      )
-@@ -1272,7 +1277,7 @@ public class Enchantments {
+@@ -1272,7 +1278,7 @@ public class Enchantments {
                      Enchantment.definition(
                          items.getOrThrow(ItemTags.DURABILITY_ENCHANTABLE),
                          2,

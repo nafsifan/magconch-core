@@ -1,0 +1,11 @@
+--- a/data/minecraft/tags/enchantment/exclusive_set/bow.json
++++ b/data/minecraft/tags/enchantment/exclusive_set/bow.json
+@@ -1,6 +_,4 @@
+ {
+-  "values": [
+-    "minecraft:infinity",
+-    "minecraft:mending"
+-  ]
++  "replace": true,
++  "values": []
+ }

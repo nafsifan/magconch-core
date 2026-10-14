@@ -1,0 +1,27 @@
+--- a/data/minecraft/enchantment/impaling.json
++++ b/data/minecraft/enchantment/impaling.json
+@@ -15,10 +_,14 @@
+           }
+         },
+         "requirements": {
+-          "type": "minecraft:entity_properties",
++          "condition": "minecraft:entity_properties",
+           "entity": "this",
+           "predicate": {
+-            "minecraft:entity_type": "#minecraft:sensitive_to_impaling"
++            "location": {
++              "fluid": {
++                "fluids": "#minecraft:water"
++              }
++            }
+           }
+         }
+       }
+@@ -37,6 +_,6 @@
+   "slots": [
+     "mainhand"
+   ],
+-  "supported_items": "#minecraft:enchantable/trident",
++  "supported_items": "#minecraft:enchantable/impaling",
+   "weight": 2
+ }
