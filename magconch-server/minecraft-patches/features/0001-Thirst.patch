@@ -479,7 +479,7 @@ index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db9
                      } finally {
                          net.minecraft.network.chat.ComponentSerialization.DONT_RENDER_TRANSLATABLES.set(prev);
                      }
-@@ -243,6 +258,63 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+@@ -243,6 +258,85 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
          return !this.isEmpty() ? this.components.asPatch() : DataComponentPatch.EMPTY;
      }
  
@@ -509,8 +509,8 @@ index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db9
 +            }
 +
 +            changed |= this.saveAdditional(builder);
-+            if (changed && !patch.isEmpty()) {
-+                CompoundTag compoundTag = new CompoundTag();
++            if (changed) {
++                CompoundTag compoundTag = this.getOrDefault(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.EMPTY).copyTag();
 +                RegistryOps<Tag> registryOps = MinecraftServer.getServer().registryAccess().createSerializationContext(NbtOps.INSTANCE);
 +                compoundTag.store("Magconch.OriginalComponents", DataComponentPatch.CODEC, registryOps, patch);
 +                builder.set(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(compoundTag));
@@ -528,15 +528,41 @@ index 00861318771cd184c9f75a9a036deee9ec2ba310..400e257d6842791c9dd754a687a19db9
 +        net.minecraft.world.item.component.ItemLore extendedAfterLore = this.getOrDefault(DataComponents.EXTENDED_AFTER_LORE, net.minecraft.world.item.component.ItemLore.EMPTY);
 +        if (!extendedBeforeLore.lines().isEmpty() || !extendedAfterLore.lines().isEmpty()) {
 +            net.minecraft.world.item.component.ItemLore lore = this.getOrDefault(DataComponents.LORE, net.minecraft.world.item.component.ItemLore.EMPTY);
-+            List<Component> lores = new java.util.ArrayList<>();
-+            lores.addAll(extendedBeforeLore.lines());
-+            lores.addAll(lore.lines());
-+            lores.addAll(extendedAfterLore.lines());
-+            builder.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lores));
-+            changed = true;
++            List<Component> currentLines = lore.lines();
++            List<Component> beforeLines = extendedBeforeLore.lines();
++            List<Component> afterLines = extendedAfterLore.lines();
++
++            boolean needBefore = !beforeLines.isEmpty() && !hasPrefix(currentLines, beforeLines);
++            boolean needAfter = !afterLines.isEmpty() && !hasSuffix(currentLines, afterLines);
++
++            if (needBefore || needAfter) {
++                List<Component> lores = new java.util.ArrayList<>();
++                if (needBefore) lores.addAll(beforeLines);
++                lores.addAll(currentLines);
++                if (needAfter) lores.addAll(afterLines);
++                builder.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lores));
++                changed = true;
++            }
 +        }
 +
 +        return changed;
++    }
++
++    private static boolean hasPrefix(final List<Component> source, final List<Component> prefix) {
++        if (source.size() < prefix.size()) return false;
++        for (int i = 0; i < prefix.size(); i++) {
++            if (!source.get(i).getString().equals(prefix.get(i).getString())) return false;
++        }
++        return true;
++    }
++
++    private static boolean hasSuffix(final List<Component> source, final List<Component> suffix) {
++        if (source.size() < suffix.size()) return false;
++        int offset = source.size() - suffix.size();
++        for (int i = 0; i < suffix.size(); i++) {
++            if (!source.get(offset + i).getString().equals(suffix.get(i).getString())) return false;
++        }
++        return true;
 +    }
 +    // magconch end - customize default components
 +
