@@ -16,24 +16,6 @@ index fed2a68bf1a9e9a169c0235e129346b9b624170b..406998338ab834b7f0ee4614d78d8a3c
      public static final TicketType UNKNOWN = register("unknown", 1L, FLAG_CAN_EXPIRE_IF_UNLOADED | FLAG_LOADING);
      public static final TicketType PLUGIN = register("plugin", NO_TIMEOUT, FLAG_LOADING | FLAG_SIMULATION); // CraftBukkit
      public static final TicketType POST_TELEPORT = register("post_teleport", 5L, FLAG_LOADING | FLAG_SIMULATION); // Paper
-diff --git a/net/minecraft/world/damagesource/CombatRules.java b/net/minecraft/world/damagesource/CombatRules.java
-index 9cc810a308c9b9581ced90e31afc36f5f39bb950..d8a65bf84303a9c6e7891b5394fa0462de14dfde 100644
---- a/net/minecraft/world/damagesource/CombatRules.java
-+++ b/net/minecraft/world/damagesource/CombatRules.java
-@@ -32,7 +32,11 @@ public class CombatRules {
-     }
- 
-     public static float getDamageAfterMagicAbsorb(final float damage, final float totalMagicArmor) {
--        float realArmor = Mth.clamp(totalMagicArmor, 0.0F, 20.0F);
--        return damage * (1.0F - realArmor / 25.0F);
-+        // magconch start - adjust enchantment: 平滑双曲衰减公式，消除 80% 硬上限
-+        if (totalMagicArmor > 0.0F) {
-+            return damage * (1.0F - (totalMagicArmor / (totalMagicArmor + 20.0F)));
-+        }
-+        return damage;
-+        // magconch end - adjust enchantment
-     }
- }
 diff --git a/net/minecraft/world/entity/LightningBolt.java b/net/minecraft/world/entity/LightningBolt.java
 index c756d28b396520264336832f17527981248556f3..1a0a688cc492f7cbcd25387edaf2b28a4e303c3d 100644
 --- a/net/minecraft/world/entity/LightningBolt.java
