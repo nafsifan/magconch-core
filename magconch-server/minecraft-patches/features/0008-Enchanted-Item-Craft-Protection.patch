@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Wed, 14 Oct 2026 12:38:35 +0800
+Subject: [PATCH] Enchanted Item Craft Protection
+
+
+diff --git a/net/minecraft/world/item/crafting/RepairItemRecipe.java b/net/minecraft/world/item/crafting/RepairItemRecipe.java
+index 426f044c8dd60c14f5851f0d8c4781c96ed3cc27..9565cb9db38538190873fab648d2d63bb9efe80b 100644
+--- a/net/minecraft/world/item/crafting/RepairItemRecipe.java
++++ b/net/minecraft/world/item/crafting/RepairItemRecipe.java
+@@ -49,7 +49,8 @@ public class RepairItemRecipe extends CustomRecipe {
+             && first.has(DataComponents.MAX_DAMAGE)
+             && second.has(DataComponents.MAX_DAMAGE)
+             && first.has(DataComponents.DAMAGE)
+-            && second.has(DataComponents.DAMAGE);
++            && second.has(DataComponents.DAMAGE)
++            && !first.isEnchanted() && !second.isEnchanted(); // magconch - enchanted item craft protection: disallow combining enchanted items in crafting table to prevent loss of enchantments
+     }
+ 
+     @Override
