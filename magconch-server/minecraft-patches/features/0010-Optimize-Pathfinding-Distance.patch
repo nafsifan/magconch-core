@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Fri, 16 Oct 2026 10:14:55 +0800
+Subject: [PATCH] Optimize Pathfinding Distance
+
+
+diff --git a/net/minecraft/world/level/pathfinder/PathFinder.java b/net/minecraft/world/level/pathfinder/PathFinder.java
+index b903ae067130b460fca782fa8f37e9405670eeee..79cca0b71194d91aeaeebdadc3612d5ff173e51c 100644
+--- a/net/minecraft/world/level/pathfinder/PathFinder.java
++++ b/net/minecraft/world/level/pathfinder/PathFinder.java
+@@ -83,6 +83,7 @@ public class PathFinder {
+         int count = 0;
+         List<Map.Entry<Target, BlockPos>> reachedTargets = Lists.newArrayListWithExpectedSize(targets.size()); // Paper - optimize collection
+         int maxVisitedNodesAdjusted = (int)(this.maxVisitedNodes * maxVisitedNodesMultiplier);
++        float maxPathLengthSqr = maxPathLength * maxPathLength; // magconch - optimize distanceTo
+ 
+         while (!this.openSet.isEmpty()) {
+             if (++count >= maxVisitedNodesAdjusted) {
+@@ -111,7 +112,7 @@ public class PathFinder {
+                 closedSet.add(current);
+             }
+ 
+-            if (!(current.distanceTo(from) >= maxPathLength)) {
++            if (!((current == from ? 0.0F : current.distanceToSqr(from)) >= maxPathLengthSqr)) { // magconch - optimize distanceTo
+                 int neighborCount = this.nodeEvaluator.getNeighbors(this.neighbors, current);
+ 
+                 for (int i = 0; i < neighborCount; i++) {
+@@ -169,12 +170,12 @@ public class PathFinder {
+         for (int i = 0, targetsSize = targets.size(); i < targetsSize; i++) {
+             final Target target = targets.get(i).getKey();
+             // Paper end - Perf: remove streams and optimize collection
+-            float h = from.distanceTo(target);
++            float h = from.distanceToSqr(target); // magconch - optimize distanceTo
+             target.updateBest(h, from);
+             bestH = Math.min(h, bestH);
+         }
+ 
+-        return bestH;
++        return net.minecraft.util.Mth.sqrt(bestH); // magconch - optimize distanceTo
+     }
+ 
+     private Path reconstructPath(final Node closest, final BlockPos target, final boolean reached) {
