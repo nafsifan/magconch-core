@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Fri, 16 Oct 2026 10:16:02 +0800
+Subject: [PATCH] Fix Inactive Arrow Despawn
+
+
+diff --git a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
+index e3517b53c28f2c7a2872f8fbbdb78faa2313b201..d66e01a4d6e8a636080cde4825b0f85606055d1b 100644
+--- a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
++++ b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
+@@ -180,6 +180,16 @@ public abstract class AbstractArrow extends Projectile {
+         }
+     }
+ 
++    // Paper start - EAR 2 // magconch - fix inactive arrow despawn: moved from Arrow to AbstractArrow
++    @Override
++    public void inactiveTick() {
++        if (this.isInGround()) {
++            this.life++;
++        }
++        super.inactiveTick();
++    }
++    // Paper end
++
+     @Override
+     public void tick() {
+         boolean physicsEnabled = !this.isNoPhysics();
+diff --git a/net/minecraft/world/entity/projectile/arrow/Arrow.java b/net/minecraft/world/entity/projectile/arrow/Arrow.java
+index 504472285bd8c173de2b406365d04e31870f85b8..e9199464cebb0d704c02cf4fcf8c00343ec824c5 100644
+--- a/net/minecraft/world/entity/projectile/arrow/Arrow.java
++++ b/net/minecraft/world/entity/projectile/arrow/Arrow.java
+@@ -72,16 +72,6 @@ public class Arrow extends AbstractArrow {
+         entityData.define(ID_EFFECT_COLOR, -1);
+     }
+ 
+-    // Paper start - EAR 2
+-    @Override
+-    public void inactiveTick() {
+-        if (this.isInGround()) {
+-            this.life++;
+-        }
+-        super.inactiveTick();
+-    }
+-    // Paper end
+-
+     @Override
+     public void tick() {
+         super.tick();
