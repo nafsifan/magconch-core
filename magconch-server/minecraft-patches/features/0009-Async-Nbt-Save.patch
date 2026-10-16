@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Fri, 16 Oct 2026 10:13:55 +0800
+Subject: [PATCH] Async Nbt Save
+
+
+diff --git a/net/minecraft/nbt/NbtIo.java b/net/minecraft/nbt/NbtIo.java
+index 5c03b51bcdea77560ac9e4c1791e66cc1e990a95..564fe8d6fd9ec9476fe50aca4de0d31e67d426b1 100644
+--- a/net/minecraft/nbt/NbtIo.java
++++ b/net/minecraft/nbt/NbtIo.java
+@@ -25,7 +25,7 @@ import org.jspecify.annotations.Nullable;
+ 
+ public class NbtIo {
+     private static final OpenOption[] SYNC_OUTPUT_OPTIONS = new OpenOption[]{
+-        StandardOpenOption.SYNC, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
++        StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING // magconch - async nbt save: remove StandardOpenOption.SYNC to avoid disk flush hitch
+     };
+ 
+     public static CompoundTag readCompressed(final Path file, final NbtAccounter accounter) throws IOException {
