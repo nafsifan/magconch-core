@@ -1,0 +1,86 @@
+From d57b6a811644f161b569135439a9bfa1144649ae Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Sun, 18 Oct 2026 15:32:37 +0800
+Subject: [PATCH] Fix Trident Cross Dimension Loyalty
+
+---
+ .../projectile/arrow/AbstractArrow.java       | 11 ++++++++
+ .../projectile/arrow/ThrownTrident.java       | 27 ++++++++++++++++++-
+ 2 files changed, 37 insertions(+), 1 deletion(-)
+
+diff --git a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
+index d66e01a..a65c158 100644
+--- a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
++++ b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
+@@ -829,6 +829,17 @@ public abstract class AbstractArrow extends Projectile {
+         return true;
+     }
+ 
++    // magconch start - cross dimension loyalty return
++    @Override
++    public void restoreFrom(final Entity oldEntity) {
++        super.restoreFrom(oldEntity);
++        if (oldEntity instanceof AbstractArrow arrow) {
++            this.setPickupItemStack(arrow.getPickupItemStackOrigin().copy());
++            this.pickup = arrow.pickup;
++        }
++    }
++    // magconch end - cross dimension loyalty return
++
+     public enum Pickup {
+         DISALLOWED,
+         ALLOWED,
+diff --git a/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java b/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
+index 34eb72c..b5fbda5 100644
+--- a/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
++++ b/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
+@@ -90,6 +90,20 @@ public class ThrownTrident extends AbstractArrow {
+ 
+                 this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.DROP); // CraftBukkit - add Bukkit remove cause
+             } else {
++                // magconch start - cross dimension loyalty return
++                if (currentOwner instanceof ServerPlayer player && this.level() != player.level()) {
++                    if (this.pickup == AbstractArrow.Pickup.ALLOWED) {
++                        ItemStack item = this.getPickupItem();
++                        if (!player.getInventory().add(item)) {
++                            player.spawnAtLocation((ServerLevel) player.level(), item, 0.1F);
++                        }
++                        player.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.TRIDENT_RETURN, net.minecraft.sounds.SoundSource.PLAYERS, 10.0F, 1.0F);
++                    }
++                    this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.PICKUP);
++                    return;
++                }
++                // magconch end - cross dimension loyalty return
++
+                 if (!(currentOwner instanceof Player) && this.position().distanceTo(currentOwner.getEyePosition()) < currentOwner.getBbWidth() + 1.0) {
+                     this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.DESPAWN); // CraftBukkit - add Bukkit remove cause
+                     return;
+@@ -118,7 +132,8 @@ public class ThrownTrident extends AbstractArrow {
+                         || sectionPosX != net.minecraft.core.SectionPos.blockToSectionCoord(blockPos.getX())
+                         || sectionPosZ != net.minecraft.core.SectionPos.blockToSectionCoord(blockPos.getZ())
+                 )
+-                && currentOwner instanceof ServerPlayer) {
++                && currentOwner instanceof ServerPlayer serverPlayer
++                && serverPlayer.level() == this.level()) {
+                 if (!this.ticketCheck.contains(blockPos.getX(), blockPos.getY(), blockPos.getZ())) {
+                     this.ticketCheck = this.ticketCheck.minmax(new net.minecraft.world.phys.AABB(blockPos));
+                     this.ticketTimer = this.updateTridentTicket();
+@@ -316,5 +331,15 @@ public class ThrownTrident extends AbstractArrow {
+             super.onBelowWorld();
+         }
+     }
++
++    @Override
++    public void restoreFrom(final Entity oldEntity) {
++        super.restoreFrom(oldEntity);
++        if (oldEntity instanceof ThrownTrident trident) {
++            this.dealtDamage = trident.dealtDamage;
++            this.entityData.set(ID_LOYALTY, (byte) trident.getLoyalty());
++            this.entityData.set(ID_FOIL, trident.isFoil());
++        }
++    }
+     // magconch end - adjust enchantment
+ }
+-- 
+2.49.0.windows.1
+
