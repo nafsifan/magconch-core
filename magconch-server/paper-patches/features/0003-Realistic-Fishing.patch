@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 19 Oct 2026 09:51:25 +0800
+Subject: [PATCH] Realistic Fishing
+
+
+diff --git a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+index f8f643646f49dd8783437a7d9ed2902f4f57c90e..b08ef262ab32fcc8f93c79668098f862dee688f9 100644
+--- a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
++++ b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+@@ -405,6 +405,12 @@ public class GlobalConfiguration extends ConfigurationPart {
+             public boolean resident = true;
+             public int timeoutHours = 24;
+         }
++
++        public Fishing fishing;
++
++        public class Fishing extends ConfigurationPart {
++            public boolean antiCheat = true;
++        }
+     }
+     // magconch end - bot configuration
+ }

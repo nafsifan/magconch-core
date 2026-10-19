@@ -5,7 +5,7 @@ Subject: [PATCH] Realistic Fishing
 
 
 diff --git a/net/minecraft/world/entity/projectile/FishingHook.java b/net/minecraft/world/entity/projectile/FishingHook.java
-index adc1017a4f35e0457c780c100bba3326c17a7de9..2870047e3e36439920e76493b599d7cfdb71777c 100644
+index adc1017a4f35e0457c780c100bba3326c17a7de9..99179f6190e47afa1acc414be1e1dc2e7c3e22b6 100644
 --- a/net/minecraft/world/entity/projectile/FishingHook.java
 +++ b/net/minecraft/world/entity/projectile/FishingHook.java
 @@ -83,6 +83,11 @@ public class FishingHook extends Projectile {
@@ -20,37 +20,52 @@ index adc1017a4f35e0457c780c100bba3326c17a7de9..2870047e3e36439920e76493b599d7cf
      private FishingHook(final EntityType<? extends FishingHook> type, final Level level, final int luck, final int lureSpeed) {
          super(type, level);
          this.luck = Math.max(0, luck);
-@@ -198,6 +203,7 @@ public class FishingHook extends Projectile {
+@@ -198,6 +203,11 @@ public class FishingHook extends Projectile {
                  }
  
                  if (isInWater) {
-+                    this.playSound(SoundEvents.FISHING_BOBBER_SPLASH, 0.25F, 1.75F + (this.random.nextFloat() - this.random.nextFloat()) * 0.25F); // Magconch - more realistic fishing: 鱼钩落水音效, 防止监测声音的自动钓鱼
++                    // Magconch start - more realistic fishing: 鱼钩落水音效, 防止监测声音的自动钓鱼
++                    if (this.isAntiCheatEnabled()) {
++                        this.playSound(SoundEvents.FISHING_BOBBER_SPLASH, 0.25F, 1.75F + (this.random.nextFloat() - this.random.nextFloat()) * 0.25F);
++                    }
++                    // Magconch end - more realistic fishing
                      this.setDeltaMovement(this.getDeltaMovement().multiply(0.3, 0.2, 0.3));
                      new io.papermc.paper.event.entity.FishHookStateChangeEvent((org.bukkit.entity.FishHook) getBukkitEntity(), org.bukkit.entity.FishHook.HookState.BOBBING).callEvent(); // Paper - Add FishHookStateChangeEvent. #BOBBING
                      this.currentState = FishingHook.FishHookState.BOBBING;
-@@ -240,12 +246,15 @@ public class FishingHook extends Projectile {
+@@ -239,13 +249,24 @@ public class FishingHook extends Projectile {
+                     if (isInWater) {
                          this.outOfWaterTime = Math.max(0, this.outOfWaterTime - 1);
                          if (this.biting) {
-                             this.setDeltaMovement(
+-                            this.setDeltaMovement(
 -                                this.getDeltaMovement().add(0.0, -0.1 * this.syncronizedRandom.nextFloat() * this.syncronizedRandom.nextFloat(), 0.0)
-+                                0.0,
-+                                this.getDeltaMovement().y - 0.1 * this.syncronizedRandom.nextFloat() * this.syncronizedRandom.nextFloat(),
-+                                0.0
-                             );
+-                            );
++                            // Magconch start - more realistic fishing
++                            if (this.isAntiCheatEnabled()) {
++                                this.setDeltaMovement(
++                                    0.0,
++                                    this.getDeltaMovement().y - 0.1 * this.syncronizedRandom.nextFloat() * this.syncronizedRandom.nextFloat(),
++                                    0.0
++                                );
++                            } else {
++                                this.setDeltaMovement(
++                                    this.getDeltaMovement().add(0.0, -0.1 * this.syncronizedRandom.nextFloat() * this.syncronizedRandom.nextFloat(), 0.0)
++                                );
++                            }
++                            // Magconch end - more realistic fishing
                          }
  
                          if (!this.level().isClientSide()) {
                              this.catchingFish(blockPos);
-+                            if (this.tickCount % 20 == 0) this.playSound(SoundEvents.FISHING_BOBBER_SPLASH, 0.001F, 1.0F); // Magconch - more realistic fishing: 虚拟鱼上钩音效, 防止监测声音的自动钓鱼
++                            if (this.isAntiCheatEnabled() && this.tickCount % 20 == 0) this.playSound(SoundEvents.FISHING_BOBBER_SPLASH, 0.001F, 1.0F); // Magconch - more realistic fishing: 虚拟鱼上钩音效, 防止监测声音的自动钓鱼
                          }
                      } else {
                          this.outOfWaterTime = Math.min(10, this.outOfWaterTime + 1);
-@@ -266,6 +275,12 @@ public class FishingHook extends Projectile {
+@@ -266,6 +287,12 @@ public class FishingHook extends Projectile {
  
              double inertia = 0.92;
              this.setDeltaMovement(this.getDeltaMovement().scale(0.92));
 +            // Magconch start - more realistic fishing: 真咬钩期间在 move 之后附加极微小水平交替速度，防止浮漂运动检测 Mod 通过 x==0 && z==0 识别咬钩
-+            if (this.biting) {
++            if (this.isAntiCheatEnabled() && this.biting) {
 +                double offset = (this.tickCount & 1) == 0 ? 0.005 : -0.005;
 +                this.setDeltaMovementSync(offset, this.getDeltaMovement().y, offset);
 +            }
@@ -58,12 +73,12 @@ index adc1017a4f35e0457c780c100bba3326c17a7de9..2870047e3e36439920e76493b599d7cf
              this.reapplyPosition();
          }
      }
-@@ -326,12 +341,28 @@ public class FishingHook extends Projectile {
+@@ -326,12 +353,34 @@ public class FishingHook extends Projectile {
              fishingSpeed--;
          }
  
 +        // Magconch start - more realistic fishing: 随机假下沉并强制水平速度归零，诱骗浮漂运动检测 Mod 提前空竿
-+        if (this.nibble <= 0 && (this.timeUntilLured > 0 || this.timeUntilHooked > 0) && --this.timeUntilSink < 0) {
++        if (this.isAntiCheatEnabled() && this.nibble <= 0 && (this.timeUntilLured > 0 || this.timeUntilHooked > 0) && --this.timeUntilSink < 0) {
 +            this.timeUntilSink = Mth.nextInt(this.random, 25, 60);
 +            if (this.calculateOpenWater(this.blockPosition())) {
 +                boolean deepSink = this.timeUntilLured > 0 && --this.deepSinkCooldown < 0;
@@ -84,23 +99,33 @@ index adc1017a4f35e0457c780c100bba3326c17a7de9..2870047e3e36439920e76493b599d7cf
                  this.timeUntilLured = 0;
                  this.timeUntilHooked = 0;
 -                this.getEntityData().set(DATA_BITING, false);
-+                this.biting = false; // this.getEntityData().set(DATA_BITING, false); // Magconch - more realistic fishing: 防止自动钓鱼
++                // Magconch start - more realistic fishing: 防止自动钓鱼
++                if (this.isAntiCheatEnabled()) {
++                    this.biting = false;
++                } else {
++                    this.getEntityData().set(DATA_BITING, false);
++                }
++                // Magconch end - more realistic fishing
                  // CraftBukkit start
                  org.bukkit.event.player.PlayerFishEvent playerFishEvent = new org.bukkit.event.player.PlayerFishEvent((org.bukkit.entity.Player) this.getPlayerOwner().getBukkitEntity(), null, (org.bukkit.entity.FishHook) this.getBukkitEntity(), org.bukkit.event.player.PlayerFishEvent.State.FAILED_ATTEMPT);
                  playerFishEvent.callEvent();
-@@ -382,7 +413,10 @@ public class FishingHook extends Projectile {
+@@ -382,7 +431,14 @@ public class FishingHook extends Projectile {
                      0.2F
                  );
                  this.nibble = Mth.nextInt(this.random, 20, 40);
 -                this.getEntityData().set(DATA_BITING, true);
 +                // Magconch start - more realistic fishing: 防止自动钓鱼
-+                this.biting = true; // this.getEntityData().set(DATA_BITING, true);
-+                this.setDeltaMovement(0.0, -0.4F * Mth.nextFloat(this.syncronizedRandom, 0.6F, 1.0F), 0.0);
++                if (this.isAntiCheatEnabled()) {
++                    this.biting = true;
++                    this.setDeltaMovement(0.0, -0.4F * Mth.nextFloat(this.syncronizedRandom, 0.6F, 1.0F), 0.0);
++                } else {
++                    this.getEntityData().set(DATA_BITING, true);
++                }
 +                // Magconch end - more realistic fishing
              }
          } else if (this.timeUntilLured > 0) {
              this.timeUntilLured -= fishingSpeed;
-@@ -431,9 +465,25 @@ public class FishingHook extends Projectile {
+@@ -431,9 +487,29 @@ public class FishingHook extends Projectile {
      public void resetTimeUntilLured() {
          this.timeUntilLured = Mth.nextInt(this.random, this.minWaitTime, this.maxWaitTime);
          this.timeUntilLured -= (this.applyLure) ? (this.lureSpeed >= this.maxWaitTime ? this.timeUntilLured - 1 : this.lureSpeed ) : 0; // Paper - Fix Lure infinite loop
@@ -112,6 +137,10 @@ index adc1017a4f35e0457c780c100bba3326c17a7de9..2870047e3e36439920e76493b599d7cf
      // Paper end - more projectile api - extract time until lured reset logic
  
 +    // Magconch start - more realistic fishing
++    private boolean isAntiCheatEnabled() {
++        return io.papermc.paper.configuration.GlobalConfiguration.get().magconch.fishing.antiCheat;
++    }
++
 +    public void setDeltaMovementSync(final Vec3 deltaMovement) {
 +        super.setDeltaMovement(deltaMovement);
 +        this.markHurt();

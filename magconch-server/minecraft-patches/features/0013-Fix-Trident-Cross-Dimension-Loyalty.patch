@@ -1,15 +1,11 @@
-From d57b6a811644f161b569135439a9bfa1144649ae Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Nafsi <i@nafsi.me>
 Date: Sun, 18 Oct 2026 15:32:37 +0800
 Subject: [PATCH] Fix Trident Cross Dimension Loyalty
 
----
- .../projectile/arrow/AbstractArrow.java       | 11 ++++++++
- .../projectile/arrow/ThrownTrident.java       | 27 ++++++++++++++++++-
- 2 files changed, 37 insertions(+), 1 deletion(-)
 
 diff --git a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
-index d66e01a..a65c158 100644
+index d66e01a4d6e8a636080cde4825b0f85606055d1b..a65c158d9ad498cfdd4e68a824dccb7d00aee11f 100644
 --- a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
 +++ b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
 @@ -829,6 +829,17 @@ public abstract class AbstractArrow extends Projectile {
@@ -31,7 +27,7 @@ index d66e01a..a65c158 100644
          DISALLOWED,
          ALLOWED,
 diff --git a/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java b/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
-index 34eb72c..b5fbda5 100644
+index 34eb72c369f663d87bca41fb1d3d86fb3561acee..b5fbda5771c6bd3dda7e26d60299f45c53230747 100644
 --- a/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
 +++ b/net/minecraft/world/entity/projectile/arrow/ThrownTrident.java
 @@ -90,6 +90,20 @@ public class ThrownTrident extends AbstractArrow {
@@ -81,6 +77,3 @@ index 34eb72c..b5fbda5 100644
 +    }
      // magconch end - adjust enchantment
  }
--- 
-2.49.0.windows.1
-
