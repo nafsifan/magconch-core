@@ -379,7 +379,7 @@ index fb2c627a74e37f1270274d93d87f1262547dfd59..72b2e0a789a51f41cf72731691417669
  
      public static @Nullable NameAndId fromJson(final JsonObject object) {
 diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
-index 61918c15348d4999dae26fb27460de5e4ee38f98..7287875ccc21bd1d4c43fc7d4b9e9d84c229b1b1 100644
+index 61918c15348d4999dae26fb27460de5e4ee38f98..eece370f23cc5c5391aa6fe35595636048d3a337 100644
 --- a/net/minecraft/server/players/PlayerList.java
 +++ b/net/minecraft/server/players/PlayerList.java
 @@ -248,6 +248,17 @@ public abstract class PlayerList {
@@ -442,20 +442,7 @@ index 61918c15348d4999dae26fb27460de5e4ee38f98..7287875ccc21bd1d4c43fc7d4b9e9d84
      }
  
      public void broadcast(
-@@ -1246,7 +1270,11 @@ public abstract class PlayerList {
-     }
- 
-     public @Nullable ServerPlayer getPlayer(final UUID uuid) {
--        return this.playersByUUID.get(uuid);
-+        ServerPlayer player = this.playersByUUID.get(uuid);
-+        if (player == null && org.magconch.bot.BotList.INSTANCE != null) {
-+            player = org.magconch.bot.BotList.INSTANCE.getBot(uuid);
-+        }
-+        return player;
-     }
- 
-     public @Nullable ServerPlayer getPlayer(final String playerName) {
-@@ -1255,6 +1283,9 @@ public abstract class PlayerList {
+@@ -1255,6 +1279,9 @@ public abstract class PlayerList {
                  return player;
              }
          }
