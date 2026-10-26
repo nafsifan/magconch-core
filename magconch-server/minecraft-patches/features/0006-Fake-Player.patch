@@ -4,6 +4,18 @@ Date: Tue, 13 Oct 2026 14:19:25 +0800
 Subject: [PATCH] Fake Player
 
 
+diff --git a/net/minecraft/advancements/triggers/SimpleCriterionTrigger.java b/net/minecraft/advancements/triggers/SimpleCriterionTrigger.java
+index b938e10fe5b5f3aae1d18ee769827535ed543a9c..874491dd44d9effe8db676f730353f17e462a837 100644
+--- a/net/minecraft/advancements/triggers/SimpleCriterionTrigger.java
++++ b/net/minecraft/advancements/triggers/SimpleCriterionTrigger.java
+@@ -18,6 +18,7 @@ import net.minecraft.world.level.storage.loot.predicates.LootItemCondition;
+ 
+ public abstract class SimpleCriterionTrigger<T extends SimpleCriterionTrigger.SimpleInstance> implements CriterionTrigger<T> {
+     protected void trigger(final ServerPlayer player, final Predicate<T> matcher) {
++        if (player instanceof org.magconch.bot.ServerBot) return; // magconch - skip bot
+         PlayerAdvancements advancements = player.getAdvancements();
+         Map<PlayerAdvancements.TriggerInstanceKey, T> listenersForType = advancements.getTriggerMapForType(this);
+         if (listenersForType != null && !listenersForType.isEmpty()) {
 diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
 index 7e4083634d051268d60f2936d238111f5f947a99..1c2e65fc4363043b54039af71b79fca9e8348d19 100644
 --- a/net/minecraft/commands/Commands.java
@@ -16,8 +28,23 @@ index 7e4083634d051268d60f2936d238111f5f947a99..1c2e65fc4363043b54039af71b79fca9
          TimeCommand.register(this.dispatcher, context);
          TitleCommand.register(this.dispatcher, context);
          TriggerCommand.register(this.dispatcher);
+diff --git a/net/minecraft/network/Connection.java b/net/minecraft/network/Connection.java
+index 936200d7620e1fe83eb45ddbcff86b6b6ecaab8f..d8337a9fb9465475a1e85abc5587c234377d538a 100644
+--- a/net/minecraft/network/Connection.java
++++ b/net/minecraft/network/Connection.java
+@@ -656,6 +656,10 @@ public class Connection extends SimpleChannelInboundHandler<Packet<?>> {
+         return this.address;
+     }
+ 
++    public io.netty.channel.Channel getChannel() {
++        return this.channel;
++    }
++
+     public String getLoggableAddress(final boolean logIPs) {
+         if (this.address == null) {
+             return "local";
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
-index 6b9bfb25e7c1c1e748b2d07cdae0a63da382fd7a..3a7ec2d8e2b6bf1c4bc6174718a24376247701b4 100644
+index 6b9bfb25e7c1c1e748b2d07cdae0a63da382fd7a..007fd40682e47bbc0ffef420069b0c8af444d9fa 100644
 --- a/net/minecraft/server/MinecraftServer.java
 +++ b/net/minecraft/server/MinecraftServer.java
 @@ -646,6 +646,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
@@ -53,6 +80,17 @@ index 6b9bfb25e7c1c1e748b2d07cdae0a63da382fd7a..3a7ec2d8e2b6bf1c4bc6174718a24376
      }
  
      public void forceGameTimeSynchronization() {
+@@ -3153,4 +3156,10 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+         ));
+     }
+     // Paper end - API to check if the server is sleeping
++
++    // Magconch start - bot support
++    public org.magconch.bot.BotList getBotList() {
++        return org.magconch.bot.BotList.INSTANCE;
++    }
++    // Magconch end - bot support
+ }
 diff --git a/net/minecraft/server/PlayerAdvancements.java b/net/minecraft/server/PlayerAdvancements.java
 index e70701663abd6f19a506690167d80f0dceab8000..9e721238876f7b8297125127cd908ac3ed76254f 100644
 --- a/net/minecraft/server/PlayerAdvancements.java
@@ -82,10 +120,126 @@ index e70701663abd6f19a506690167d80f0dceab8000..9e721238876f7b8297125127cd908ac3
          boolean result = false;
          AdvancementProgress progress = this.getOrStartProgress(holder);
          boolean wasDone = progress.isDone();
+diff --git a/net/minecraft/server/commands/KickCommand.java b/net/minecraft/server/commands/KickCommand.java
+index bf361ef4cbf2a55b8bba5a75111257fb2d6d471f..363d6c543b51c4e199a1b009dca07172356bf58e 100644
+--- a/net/minecraft/server/commands/KickCommand.java
++++ b/net/minecraft/server/commands/KickCommand.java
+@@ -42,6 +42,10 @@ public class KickCommand {
+         int count = 0;
+ 
+         for (ServerPlayer player : players) {
++            if (player instanceof org.magconch.bot.ServerBot) {
++                source.sendFailure(Component.literal("Cannot kick fake player, use /bot remove instead"));
++                continue;
++            }
+             if (!source.getServer().isSingleplayerOwner(player.nameAndId())) {
+                 player.connection.disconnect(reason, org.bukkit.event.player.PlayerKickEvent.Cause.KICKED); // Paper - kick event cause
+                 source.sendSuccess(() -> Component.translatable("commands.kick.success", player.getDisplayName(), reason), true);
+diff --git a/net/minecraft/server/dedicated/DedicatedServer.java b/net/minecraft/server/dedicated/DedicatedServer.java
+index 25d7191c3062d8ed40f5c7a465730d10735af5fa..0154bd697552ffe05a4402900321e0d9516e7e41 100644
+--- a/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/net/minecraft/server/dedicated/DedicatedServer.java
+@@ -230,6 +230,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+         }
+ 
+         // Spigot start
++        new org.magconch.bot.BotList(this); // Magconch - bot
+         this.setPlayerList(new DedicatedPlayerList(this, this.registries(), this.playerDataStorage));
+         org.spigotmc.SpigotConfig.init((java.io.File) this.options.valueOf("spigot-settings"));
+         org.spigotmc.SpigotConfig.registerCommands();
+@@ -369,6 +370,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+ 
+         this.saveEverything(false, true, true);
+         this.notificationManager().serverStarted();
++        org.magconch.bot.BotList.INSTANCE.loadResumeBotInfo(); // Magconch - bot
+         org.magconch.task.BossBarTask.startAll(); // magconch - tpsbar
+         return true;
+     }
+diff --git a/net/minecraft/server/level/ChunkMap.java b/net/minecraft/server/level/ChunkMap.java
+index fd0b9f20fbdd523d51550fd6009b5011e6e7e6e6..5fdd059ac7faaeb0feba1fc3d4d991c14fc762ff 100644
+--- a/net/minecraft/server/level/ChunkMap.java
++++ b/net/minecraft/server/level/ChunkMap.java
+@@ -980,7 +980,7 @@ public class ChunkMap extends SimpleRegionStorage implements ChunkHolder.PlayerP
+         return this.entityMap.containsKey(id);
+     }
+ 
+-    protected void addEntity(final Entity entity) {
++    public void addEntity(final Entity entity) {
+         org.spigotmc.AsyncCatcher.catchOp("entity track"); // Spigot
+         // Paper start - ignore and warn about illegal addEntity calls instead of crashing server
+         if (!entity.valid || entity.level() != this.level || this.entityMap.containsKey(entity.getId())) {
+diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
+index 8389d812b2d80a122fd1945b3182c08cdeda7d1c..c57d8d8022e2d044721922dc580a0b1ee6f262c0 100644
+--- a/net/minecraft/server/level/ServerLevel.java
++++ b/net/minecraft/server/level/ServerLevel.java
+@@ -194,6 +194,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+     private static final int MAX_SCHEDULED_TICKS_PER_TICK = 65536;
+     private static final AtomicInteger ENTITY_COUNTER = new AtomicInteger();
+     private final List<ServerPlayer> players = Lists.newArrayList();
++    private final List<ServerPlayer> realPlayers = Lists.newArrayList();
+     private final ServerChunkCache chunkSource;
+     private final MinecraftServer server;
+     public final io.papermc.paper.world.saveddata.PaperLevelOverrides serverLevelData; // Paper - type
+@@ -2651,6 +2652,10 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+         return this.players;
+     }
+ 
++    public List<ServerPlayer> realPlayers() {
++        return this.realPlayers;
++    }
++
+     @Override
+     public void updatePOIOnBlockStateChange(final BlockPos pos, final BlockState oldState, final BlockState newState) {
+         Optional<Holder<PoiType>> oldType = PoiTypes.forState(oldState);
+@@ -3113,6 +3118,9 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+             // ServerLevel.this.getChunkSource().addEntity(entity); // Paper - ignore and warn about illegal addEntity calls instead of crashing server; moved down below valid=true
+             if (entity instanceof ServerPlayer player) {
+                 ServerLevel.this.players.add(player);
++                if (!(player instanceof org.magconch.bot.ServerBot)) {
++                    ServerLevel.this.realPlayers.add(player);
++                }
+                 if (player.isReceivingWaypoints()) {
+                     ServerLevel.this.getWaypointManager().addPlayer(player);
+                 }
+@@ -3191,6 +3199,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+             ServerLevel.this.getChunkSource().removeEntity(entity);
+             if (entity instanceof ServerPlayer player) {
+                 ServerLevel.this.players.remove(player);
++                ServerLevel.this.realPlayers.remove(player);
+                 ServerLevel.this.getWaypointManager().removePlayer(player);
+                 ServerLevel.this.updateSleepingPlayerList();
+             }
 diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
-index 356cd6f0f8c8c53ec2fb1c488b6c1d18dfc0e8fc..5d159c02e8edbd9a4b45847f228410f25d4bd6e4 100644
+index 356cd6f0f8c8c53ec2fb1c488b6c1d18dfc0e8fc..93406a88519f352e0eafe90619eea5e127829885 100644
 --- a/net/minecraft/server/level/ServerPlayer.java
 +++ b/net/minecraft/server/level/ServerPlayer.java
+@@ -236,7 +236,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+     private static final boolean DEFAULT_SPAWN_EXTRA_PARTICLES_ON_FALL = false;
+     public ServerGamePacketListenerImpl connection;
+     private final MinecraftServer server;
+-    public final ServerPlayerGameMode gameMode;
++    public ServerPlayerGameMode gameMode;
+     private final PlayerAdvancements advancements;
+     private final ServerStatsCounter stats;
+     private float lastRecordedHealthAndAbsorption = Float.MIN_VALUE;
+@@ -254,7 +254,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+     private boolean canChatColor = true;
+     private long lastActionTime = Util.getMillis();
+     private @Nullable Entity camera;
+-    private boolean isChangingDimension;
++    public boolean isChangingDimension;
+     public boolean seenCredits = false;
+     // magconch start - tpsbar
+     private boolean tpsBar = false;
+@@ -267,7 +267,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         this.tpsBar = tpsBar;
+     }
+     // magconch end - tpsbar
+-    private final ServerRecipeBook recipeBook;
++    protected ServerRecipeBook recipeBook;
+     private @Nullable Vec3 levitationStartPos;
+     private int levitationStartTime;
+     private boolean disconnected;
 @@ -1283,7 +1283,7 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
          this.connection.markClientUnloadedAfterDeath();
      }
@@ -95,11 +249,40 @@ index 356cd6f0f8c8c53ec2fb1c488b6c1d18dfc0e8fc..5d159c02e8edbd9a4b45847f228410f2
          AABB aabb = new AABB(this.blockPosition()).inflate(32.0, 10.0, 32.0);
          this.level()
              .getEntitiesOfClass(Mob.class, aabb, EntitySelector.NO_SPECTATORS)
+@@ -1637,6 +1637,11 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         this.lastSentHealth = -1.0F;
+         this.lastSentFood = -1;
+         this.teleportSpectators(transition, oldLevel);
++        // magconch start - bot support
++        if (org.magconch.bot.BotConfig.enable) {
++            this.server.getBotList().bots.forEach(bot -> bot.sendFakeDataIfNeed(this, true));
++        }
++        // magconch end - bot support
+         // CraftBukkit start
+         org.bukkit.event.player.PlayerChangedWorldEvent changeEvent = new org.bukkit.event.player.PlayerChangedWorldEvent(this.getBukkitEntity(), oldLevel.getWorld());
+         this.level().getCraftServer().getPluginManager().callEvent(changeEvent);
+diff --git a/net/minecraft/server/players/CachedUserNameToIdResolver.java b/net/minecraft/server/players/CachedUserNameToIdResolver.java
+index 7443744e3f256983e52a1cefcaf66082e4a46a7b..35c41339e63d9bcb20814de3adf02be14900f1d8 100644
+--- a/net/minecraft/server/players/CachedUserNameToIdResolver.java
++++ b/net/minecraft/server/players/CachedUserNameToIdResolver.java
+@@ -122,6 +122,12 @@ public class CachedUserNameToIdResolver implements UserNameToIdResolver {
+ 
+     @Override
+     public Optional<NameAndId> get(final String name) {
++        if (org.magconch.bot.BotList.INSTANCE != null) {
++            org.magconch.bot.ServerBot bot = org.magconch.bot.BotList.INSTANCE.getBotByName(name);
++            if (bot != null) {
++                return Optional.of(bot.nameAndId());
++            }
++        }
+         String userName = name.toLowerCase(Locale.ROOT);
+         boolean stateLocked = true; try { this.stateLock.lock(); // Paper - Fix GameProfileCache concurrency
+         CachedUserNameToIdResolver.GameProfileInfo profileInfo = this.profilesByName.get(userName);
 diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
-index 61918c15348d4999dae26fb27460de5e4ee38f98..30b66c590cea8f1262fec106a869ee33f1be9eeb 100644
+index 61918c15348d4999dae26fb27460de5e4ee38f98..36783b1a613d95abf6f5e85d80771c7cbb8ebe5e 100644
 --- a/net/minecraft/server/players/PlayerList.java
 +++ b/net/minecraft/server/players/PlayerList.java
-@@ -248,6 +248,16 @@ public abstract class PlayerList {
+@@ -248,6 +248,17 @@ public abstract class PlayerList {
              return;
          }
  
@@ -110,12 +293,80 @@ index 61918c15348d4999dae26fb27460de5e4ee38f98..30b66c590cea8f1262fec106a869ee33
 +        }
 +        for (org.magconch.bot.ServerBot bot : org.magconch.bot.BotList.instance().bots) {
 +            bot.sendPlayerInfo(player);
++            bot.sendFakeDataIfNeed(player, true);
 +        }
 +        // magconch end - bot support
 +
          final net.kyori.adventure.text.Component jm = playerJoinEvent.joinMessage();
  
          if (jm != null && !jm.equals(net.kyori.adventure.text.Component.empty())) { // Paper - Adventure
+@@ -714,6 +725,12 @@ public abstract class PlayerList {
+         ).callEvent();
+         // Paper end
+ 
++        // magconch start - bot support
++        if (org.magconch.bot.BotConfig.enable) {
++            this.server.getBotList().bots.forEach(bot -> bot.sendFakeDataIfNeed(player, true));
++        }
++        // magconch end - bot support
++
+         return player;
+     }
+ 
+@@ -815,11 +832,14 @@ public abstract class PlayerList {
+     }
+ 
+     public String[] getPlayerNamesArray() {
+-        String[] names = new String[this.players.size()];
++        String[] names = new String[this.players.size() + this.server.getBotList().bots.size()];
+ 
+         for (int i = 0; i < this.players.size(); i++) {
+             names[i] = this.players.get(i).getGameProfile().name();
+         }
++        for (int i = this.players.size(); i < names.length; ++i) {
++            names[i] = this.server.getBotList().bots.get(i - this.players.size()).getGameProfile().name();
++        }
+ 
+         return names;
+     }
+diff --git a/net/minecraft/server/waypoints/ServerWaypointManager.java b/net/minecraft/server/waypoints/ServerWaypointManager.java
+index b9748a392c9f76e61a1b673085b4dd74c007c70d..b1a0f7230a5846f4b56facc2706b36ce076c312a 100644
+--- a/net/minecraft/server/waypoints/ServerWaypointManager.java
++++ b/net/minecraft/server/waypoints/ServerWaypointManager.java
+@@ -29,6 +29,11 @@ public class ServerWaypointManager implements WaypointManager<WaypointTransmitte
+ 
+     @Override
+     public void trackWaypoint(final WaypointTransmitter waypoint) {
++        // magconch start - bot locator bar
++        if (waypoint instanceof org.magconch.bot.ServerBot bot && !bot.getConfigValue(org.magconch.bot.agent.Configs.ENABLE_LOCATOR_BAR)) {
++            return;
++        }
++        // magconch end - bot locator bar
+         this.waypoints.add(waypoint);
+ 
+         if (!this.locatorBarEnabled) return; // Paper - optimize ServerWaypointManager with locator bar disabled
+diff --git a/net/minecraft/world/entity/Entity.java b/net/minecraft/world/entity/Entity.java
+index 7258c0bc1bc0cb63ee4cc8f1456968432408897a..6d0e1197123c2029f8d45160101cf345f1a0d695 100644
+--- a/net/minecraft/world/entity/Entity.java
++++ b/net/minecraft/world/entity/Entity.java
+@@ -307,7 +307,7 @@ public abstract class Entity
+     private final EntityFluidInteraction fluidInteraction = new EntityFluidInteraction(FLUIDS_WITH_CURRENT);
+     protected boolean wasTouchingWater;
+     protected boolean wasEyeInWater;
+-    private int invulnerableTime;
++    protected int invulnerableTime;
+     protected boolean firstTick = true;
+     protected final SynchedEntityData entityData;
+     protected static final EntityDataAccessor<Byte> DATA_SHARED_FLAGS_ID = SynchedEntityData.defineId(Entity.class, EntityDataSerializers.BYTE);
+@@ -4918,7 +4918,7 @@ public abstract class Entity
+         return MoveSimulationType.AUTHORITATIVE_SIDE;
+     }
+ 
+-    public final boolean canSimulateMovement() {
++    public boolean canSimulateMovement() {
+         return switch (this.getMoveSimulationType()) {
+             case SERVER_AND_CLIENT -> true;
+             case AUTHORITATIVE_SIDE -> this.isLocalInstanceAuthoritative();
 diff --git a/net/minecraft/world/entity/ExperienceOrb.java b/net/minecraft/world/entity/ExperienceOrb.java
 index 3a594416e711fc6fdbf0ac7c3484a9830324d4d8..9854c8f423182c4fb09b58bc0dc5ef77da909107 100644
 --- a/net/minecraft/world/entity/ExperienceOrb.java
@@ -129,10 +380,74 @@ index 3a594416e711fc6fdbf0ac7c3484a9830324d4d8..9854c8f423182c4fb09b58bc0dc5ef77
                  this.followingPlayer = nearestPlayer;
              } else {
                  this.followingPlayer = null;
+diff --git a/net/minecraft/world/entity/LivingEntity.java b/net/minecraft/world/entity/LivingEntity.java
+index b0998f46d192844b3713e9c2499ee2c75f885714..32cface3a2ef8878cb5f6afc94fd25bd574b5e03 100644
+--- a/net/minecraft/world/entity/LivingEntity.java
++++ b/net/minecraft/world/entity/LivingEntity.java
+@@ -2649,6 +2649,10 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+         this.swing(hand, animation, sendToSwingingEntity);
+     }
+ 
++    public void swing(final InteractionHand hand) {
++        this.swing(hand, SwingAnimation.DEFAULT, true);
++    }
++
+     public boolean swing(final InteractionHand hand, final SwingAnimation animation, final boolean sendToSwingingEntity) {
+         if (this.swingState.startIfAble(hand, animation, this.getModifiedSwingDuration(animation))) {
+             if (this.level() instanceof ServerLevel serverLevel) {
+@@ -4210,7 +4214,7 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+         // Paper start - lag compensate eating
+         // we add 1 to the expected time to avoid lag compensating when we should not
+         final boolean shouldLagCompensate = this.useItem.has(DataComponents.FOOD) && this.eatStartTime != -1 && (System.nanoTime() - this.eatStartTime) > ((1L + this.totalEatTimeTicks) * 50L * (1000L * 1000L));
+-        if ((--this.useItemRemaining == 0 || shouldLagCompensate) && !this.level().isClientSide() && !useItem.useOnRelease()) {
++        if ((--this.useItemRemaining == 0 || shouldLagCompensate) && !(this instanceof org.magconch.bot.ServerBot) && !this.level().isClientSide() && !useItem.useOnRelease()) {
+             this.useItemRemaining = 0;
+             // Paper end - lag compensate eating
+             this.completeUsingItem();
+@@ -4400,6 +4404,21 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+         this.stopUsingItem();
+     }
+ 
++    public boolean releaseUsingItemWithResult() {
++        ItemStack itemInHand = this.getItemInHand(this.getUsedItemHand());
++        boolean result = false;
++        if (!this.useItem.isEmpty() && ItemStack.isSameItem(itemInHand, this.useItem)) {
++            this.useItem = itemInHand;
++            result = this.useItem.releaseUsingWithResult(this.level(), this, this.getUseItemRemainingTicks());
++            if (this.useItem.useOnRelease()) {
++                this.updatingUsingItem();
++            }
++        }
++
++        this.stopUsingItem();
++        return result;
++    }
++
+     public void stopUsingItem() {
+         if (!this.level().isClientSide()) {
+             boolean wasUsingItem = this.isUsingItem();
 diff --git a/net/minecraft/world/entity/player/Player.java b/net/minecraft/world/entity/player/Player.java
-index 485b95402e23f6a39a77556d0b634244fd5fdfc3..056cf53c89d1ff7ff075db61691691f012fe7024 100644
+index 485b95402e23f6a39a77556d0b634244fd5fdfc3..8e13ab995d76ed2c0cb61a4cefcf83acce07a623 100644
 --- a/net/minecraft/world/entity/player/Player.java
 +++ b/net/minecraft/world/entity/player/Player.java
+@@ -171,7 +171,7 @@ public abstract class Player extends Avatar implements ContainerUser {
+     // magconch end - player thirst
+     protected int jumpTriggerTime;
+     public int takeXpDelay;
+-    private int sleepCounter = 0;
++    protected int sleepCounter = 0;
+     protected boolean wasUnderwater;
+     private final Abilities abilities = new Abilities();
+     public int experienceLevel = 0;
+@@ -182,7 +182,7 @@ public abstract class Player extends Avatar implements ContainerUser {
+     private int lastLevelUpTime;
+     public GameProfile gameProfile;
+     private boolean reducedDebugInfo;
+-    private ItemStack lastItemInMainHand = ItemStack.EMPTY;
++    protected ItemStack lastItemInMainHand = ItemStack.EMPTY;
+     private final ItemCooldowns cooldowns = this.createItemCooldowns();
+     private Optional<GlobalPos> lastDeathLocation = Optional.empty();
+     protected final List<Identifier> postEffects = new ArrayList<>();
 @@ -509,7 +509,7 @@ public abstract class Player extends Avatar implements ContainerUser {
          super.aiStep();
          this.yHeadRot = this.getYRot();
@@ -142,7 +457,20 @@ index 485b95402e23f6a39a77556d0b634244fd5fdfc3..056cf53c89d1ff7ff075db61691691f0
              AABB pickupArea;
              if (this.isPassenger() && !this.getVehicle().isRemoved()) {
                  pickupArea = this.getBoundingBox().minmax(this.getVehicle().getBoundingBox()).inflate(1.0, 0.0, 1.0);
-@@ -1242,7 +1242,7 @@ public abstract class Player extends Avatar implements ContainerUser {
+@@ -545,7 +545,11 @@ public abstract class Player extends Avatar implements ContainerUser {
+     public void removeEntitiesOnShoulder() {
+     }
+ 
+-    private void touch(final Entity entity) {
++    protected void livingEntityTick() {
++        super.tick();
++    }
++
++    public void touch(final Entity entity) {
+         entity.playerTouch(this);
+     }
+ 
+@@ -1242,7 +1246,7 @@ public abstract class Player extends Avatar implements ContainerUser {
              // Paper end - Configurable sprint interruption on attack
          }
  
@@ -151,3 +479,73 @@ index 485b95402e23f6a39a77556d0b634244fd5fdfc3..056cf53c89d1ff7ff075db61691691f0
              // CraftBukkit start - Add Velocity Event
              boolean cancelled = false;
              org.bukkit.entity.Player player = (org.bukkit.entity.Player) entity.getBukkitEntity();
+diff --git a/net/minecraft/world/entity/projectile/FishingHook.java b/net/minecraft/world/entity/projectile/FishingHook.java
+index 99179f6190e47afa1acc414be1e1dc2e7c3e22b6..0a7bcd8427f98143bee104630287b70c928a57d7 100644
+--- a/net/minecraft/world/entity/projectile/FishingHook.java
++++ b/net/minecraft/world/entity/projectile/FishingHook.java
+@@ -60,7 +60,7 @@ public class FishingHook extends Projectile {
+     private static final EntityDataAccessor<Integer> DATA_HOOKED_ENTITY = SynchedEntityData.defineId(FishingHook.class, EntityDataSerializers.INT);
+     private static final EntityDataAccessor<Boolean> DATA_BITING = SynchedEntityData.defineId(FishingHook.class, EntityDataSerializers.BOOLEAN);
+     private int life;
+-    private int nibble;
++    public int nibble;
+     public int timeUntilLured;
+     public int timeUntilHooked;
+     public float fishAngle;
+diff --git a/net/minecraft/world/inventory/AbstractContainerMenu.java b/net/minecraft/world/inventory/AbstractContainerMenu.java
+index c223581e30414842ce24079b47c82639d36b7e73..cf503483ca639d36237b0fb72fcedc0abcb439fc 100644
+--- a/net/minecraft/world/inventory/AbstractContainerMenu.java
++++ b/net/minecraft/world/inventory/AbstractContainerMenu.java
+@@ -259,6 +259,20 @@ public abstract class AbstractContainerMenu {
+         return itemStacks;
+     }
+ 
++    private boolean doClickCheck(int slotIndex, int button, ContainerInput actionType, Player player) {
++        if (slotIndex < 0) {
++            return true;
++        }
++
++        Slot slot = getSlot(slotIndex);
++        ItemStack itemStack = slot.getItem();
++        net.minecraft.world.item.component.CustomData customData = itemStack.get(net.minecraft.core.component.DataComponents.CUSTOM_DATA);
++        if (customData != null && (customData.contains("Magconch.Gui.Placeholder") || customData.contains("Leaves.Gui.Placeholder"))) {
++            return false;
++        }
++        return true;
++    }
++
+     public void broadcastChanges() {
+         for (int i = 0; i < this.slots.size(); i++) {
+             ItemStack current = this.slots.get(i).getItem();
+diff --git a/net/minecraft/world/item/ItemStack.java b/net/minecraft/world/item/ItemStack.java
+index 8321f55599d73cbab04e302f4f23fc87ed1ab465..9202383e295c5b6cfa0f073808959d35fac1cc90 100644
+--- a/net/minecraft/world/item/ItemStack.java
++++ b/net/minecraft/world/item/ItemStack.java
+@@ -550,7 +550,7 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+                     placeEvent = org.bukkit.craftbukkit.event.CraftEventFactory.callBlockPlaceEvent(level, player, hand, capturedBlockStates.getFirst(), pos);
+                 }
+ 
+-                if (placeEvent != null && (placeEvent.isCancelled() || !placeEvent.canBuild())) {
++                if (placeEvent != null && (placeEvent.isCancelled() || !placeEvent.canBuild()) && (!(player instanceof org.magconch.bot.ServerBot))) {
+                     result = InteractionResult.FAIL; // cancel placement
+                     // PAIL: Remove this when MC-99075 fixed
+                     player.containerMenu.forceHeldSlot(hand);
+@@ -1066,6 +1066,18 @@ public final class ItemStack implements DataComponentHolder, ItemInstance {
+         }
+     }
+ 
++    public boolean releaseUsingWithResult(Level level, LivingEntity livingEntity, int timeLeft) {
++        ItemStack itemStack = this.copy();
++        if (this.getItem().releaseUsing(this, level, livingEntity, timeLeft)) {
++            ItemStack itemStack1 = this.applyAfterUseComponentSideEffects(livingEntity, itemStack);
++            if (itemStack1 != this) {
++                livingEntity.setItemInHand(livingEntity.getUsedItemHand(), itemStack1);
++            }
++            return true;
++        }
++        return false;
++    }
++
+     public boolean useOnRelease() {
+         return this.getItem().useOnRelease(this);
+     }

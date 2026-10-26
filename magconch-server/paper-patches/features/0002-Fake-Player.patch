@@ -29,34 +29,71 @@ index 0b35a293f3436bcf8a39c4f07a88340cd9d33bcb..f8f643646f49dd8783437a7d9ed2902f
 +    // magconch end - bot configuration
  }
 diff --git a/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java b/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
-index 8b7a15af1eb2cc0318e26d7199c8e684de63cd72..40e207d584c7fe5895a63b4e5ed92232650189f1 100644
+index 8b7a15af1eb2cc0318e26d7199c8e684de63cd72..1712f9893dc1de27739e19c7bf4cb1eea7d32776 100644
 --- a/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
 +++ b/src/main/java/io/papermc/paper/plugin/manager/PaperEventManager.java
-@@ -40,6 +40,12 @@ class PaperEventManager {
+@@ -40,6 +40,20 @@ class PaperEventManager {
              throw new IllegalStateException(event.getEventName() + " may only be triggered synchronously.");
          }
  
-+        // magconch start - skip bot player events
-+        if (event instanceof org.bukkit.event.player.PlayerEvent playerEvent && ((org.bukkit.craftbukkit.entity.CraftPlayer) playerEvent.getPlayer()).getHandle() instanceof org.magconch.bot.ServerBot) {
++        // magconch start - skip bot player events & manage resident bot life cycle
++        if (event instanceof org.bukkit.event.player.PlayerEvent playerEvent && playerEvent.getPlayer() instanceof org.magconch.entity.bot.Bot) {
 +            return;
 +        }
-+        // magconch end - skip bot player events
++
++        if (org.magconch.bot.BotConfig.enable && org.magconch.bot.BotConfig.canResident) {
++            if (event instanceof org.bukkit.event.world.WorldLoadEvent worldLoadEvent) {
++                org.magconch.bot.BotList.INSTANCE.loadResume(worldLoadEvent.getWorld().getUID().toString());
++            } else if (event instanceof org.bukkit.event.world.WorldUnloadEvent worldUnloadEvent) {
++                org.magconch.bot.BotList.INSTANCE.removeAllIn(worldUnloadEvent.getWorld().getUID().toString());
++            }
++        }
++        // magconch end - skip bot player events & manage resident bot life cycle
 +
          HandlerList handlers = event.getHandlers();
          RegisteredListener[] listeners = handlers.getRegisteredListeners();
  
 diff --git a/src/main/java/org/bukkit/craftbukkit/CraftServer.java b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
-index 5f33ba98facf68a185263d4e6cff96207426aa79..53ee74d6f08ea6f174cc1afe6d487a8dfbf5f647 100644
+index 5f33ba98facf68a185263d4e6cff96207426aa79..16b7694c78d89e95944e878baac19f3f4cda6e04 100644
 --- a/src/main/java/org/bukkit/craftbukkit/CraftServer.java
 +++ b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
-@@ -1317,6 +1317,7 @@ public final class CraftServer implements Server {
+@@ -285,6 +285,7 @@ public final class CraftServer implements Server {
+     private final io.papermc.paper.potion.PaperPotionBrewer potionBrewer;
+     public final io.papermc.paper.SparksFly spark;
+     private final ServerConfiguration serverConfig = new PaperServerConfiguration();
++    private final org.magconch.entity.bot.CraftBotManager botManager; // Magconch - bot
+ 
+     // Paper start - Folia region threading API
+     private final io.papermc.paper.threadedregions.scheduler.FallbackRegionScheduler regionizedScheduler = new io.papermc.paper.threadedregions.scheduler.FallbackRegionScheduler();
+@@ -460,6 +461,7 @@ public final class CraftServer implements Server {
+         this.potionBrewer = new io.papermc.paper.potion.PaperPotionBrewer(console); // Paper - custom potion mixes
+         datapackManager = new io.papermc.paper.datapack.PaperDatapackManager(console.getPackRepository()); // Paper
+         this.spark = new io.papermc.paper.SparksFly(this); // Paper - spark
++        this.botManager = new org.magconch.entity.bot.CraftBotManager(); // Magconch - bot
+     }
+ 
+     public boolean getCommandBlockOverride(String command) {
+@@ -1317,7 +1319,7 @@ public final class CraftServer implements Server {
              return false;
          }
  
-+        org.magconch.bot.BotList.instance().removeAllIn(handle); // magconch - remove bots before world unload
-         if (!handle.players().isEmpty()) {
+-        if (!handle.players().isEmpty()) {
++        if (!handle.realPlayers().isEmpty()) {
              return false;
          }
+ 
+@@ -2951,4 +2953,11 @@ public final class CraftServer implements Server {
+     public void allowPausing(final Plugin plugin, final boolean value) {
+         this.console.addPluginAllowingSleep(plugin.getName(), value);
+     }
++
++    // Magconch start - Bot API
++    @Override
++    public org.magconch.entity.bot.CraftBotManager getBotManager() {
++        return botManager;
++    }
++    // Magconch end - Bot API
+ }
 diff --git a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
 index 9db1a0be9fc09b0e33ed522a4566468474a5632b..1391125ba5212be71d8c241758d1de85dfb3a3f1 100644
 --- a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
@@ -78,6 +115,19 @@ index 9db1a0be9fc09b0e33ed522a4566468474a5632b..1391125ba5212be71d8c241758d1de85
              HumanEntity bukkitEntity = human.getBukkitEntity();
  
              if ((bukkitEntity != null) && (bukkitEntity instanceof Player)) {
+diff --git a/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java b/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
+index 4dae7488de485dff72cde27ee8be0467d00dffdf..d7c86cb341914355ab8876e744898bf8361b6841 100644
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
+@@ -128,6 +128,8 @@ public abstract class CraftEntity implements org.bukkit.entity.Entity {
+             return new CraftHumanEntity(server, (net.minecraft.world.entity.player.Player) entity);
+         }
+ 
++        if (entity instanceof org.magconch.bot.ServerBot bot) { return new org.magconch.entity.bot.CraftBot(server, bot); }
++
+         // Special case complex part, since there is no extra entity type for them
+         if (entity instanceof EnderDragonPart complexPart) {
+             if (complexPart.parentMob instanceof EnderDragon) {
 diff --git a/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java b/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java
 index 7ad31b059c1c7a1a2fae1fa7a3359da5343e217d..70cabd87c3256e162f1cfee291e00f889f2aade4 100644
 --- a/src/main/java/org/bukkit/craftbukkit/util/permissions/CraftDefaultPermissions.java

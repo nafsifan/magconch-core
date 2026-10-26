@@ -24,6 +24,7 @@ import java.util.logging.Logger;
  * 内部轻量伪插件实例，用于给核心内置任务提供 Bukkit 调度器上下文
  */
 public class MinecraftInternalPlugin extends PluginBase {
+    public static final MinecraftInternalPlugin INSTANCE = new MinecraftInternalPlugin();
     private boolean enabled = true;
     private final String pluginName = "Minecraft";
     private final PluginDescriptionFile pdf = new PluginDescriptionFile(pluginName, "1.0", "nms");

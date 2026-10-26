@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 26 Oct 2026 12:47:39 +0800
+Subject: [PATCH] Fake Player
+
+
+diff --git a/src/main/java/org/bukkit/Bukkit.java b/src/main/java/org/bukkit/Bukkit.java
+index 833e3833ed59b940724f805a31d0ad8860e8ed7f..2dafa650acad70a65e9bca8e550906ca1f1f0bfc 100644
+--- a/src/main/java/org/bukkit/Bukkit.java
++++ b/src/main/java/org/bukkit/Bukkit.java
+@@ -3054,4 +3054,15 @@ public final class Bukkit {
+     public static void restart() {
+         server.restart();
+     }
++
++    // Magconch start - Bot API
++    /**
++     * Returns a bot manager.
++     *
++     * @return Bot Manager
++     */
++    public static @NotNull org.magconch.entity.bot.BotManager getBotManager() {
++        return server.getBotManager();
++    }
++    // Magconch end - Bot API
+ }
+diff --git a/src/main/java/org/bukkit/Server.java b/src/main/java/org/bukkit/Server.java
+index f456e99da44063f8a5c23472e58da24e1385fc22..89052269b10d18eea1c232a7d6a7c87a16b0c561 100644
+--- a/src/main/java/org/bukkit/Server.java
++++ b/src/main/java/org/bukkit/Server.java
+@@ -2815,4 +2815,13 @@ public interface Server extends PluginMessageRecipient, net.kyori.adventure.audi
+      */
+     void allowPausing(@NotNull org.bukkit.plugin.Plugin plugin, boolean value);
+     // Paper end - API to check if the server is sleeping
++
++    // Magconch start - Bot API
++    /**
++     * Returns a bot manager.
++     *
++     * @return Bot Manager
++     */
++    @NotNull org.magconch.entity.bot.BotManager getBotManager();
++    // Magconch end - Bot API
+ }
