@@ -47,7 +47,7 @@ public class BotInventoryContainer extends Inventory {
         int realSlot = convertSlot(slot);
         if (realSlot == -999) {
             // buttons are the same
-            return button;
+            return button.copy();
         }
         return original.getItem(realSlot);
     }
@@ -104,7 +104,10 @@ public class BotInventoryContainer extends Inventory {
     public void setItem(int slot, @Nonnull ItemStack stack) {
         int realSlot = convertSlot(slot);
         if (realSlot == -999) {
-            // Don't modify buttons
+            if (!stack.isEmpty()) {
+                original.add(stack);
+                player.detectEquipmentUpdates();
+            }
             return;
         }
         original.setItem(realSlot, stack);

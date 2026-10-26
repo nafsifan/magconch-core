@@ -70,6 +70,7 @@ public class BotList {
     }
 
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final int MAX_SAVE_PER_TICK = 20;
 
     private static final String TEAM_NAME = "server_bot";
     private static final Component TEAM_PREFIX = Component.empty()
@@ -110,6 +111,10 @@ public class BotList {
 
     public void loadBots() {
         this.loadResumeBotInfo();
+        for (ServerLevel level : this.server.getAllLevels()) {
+            this.loadResume(level.uuid.toString());
+        }
+        this.migrateLegacyBotsJsonIfPresent();
     }
 
     public void onServerShutdown() {
@@ -127,11 +132,19 @@ public class BotList {
     public void saveAllResumeBots(final int interval) {
         MCUtil.ensureMain("Save Bots", () -> {
             final long now = MinecraftServer.currentTick;
+            int numSaved = 0;
             for (ServerBot bot : bots) {
                 if (interval == -1 || now - bot.lastSave >= interval) {
-                    this.resumeDataStorage.save(bot);
-                    bot.lastSave = MinecraftServer.currentTick;
+                    this.resumeDataStorage.save(bot, false);
+                    bot.lastSave = now;
+                    numSaved++;
+                    if (interval != -1 && numSaved >= MAX_SAVE_PER_TICK) {
+                        break;
+                    }
                 }
+            }
+            if (numSaved > 0) {
+                this.resumeDataStorage.saveBotList();
             }
             return null;
         });
@@ -361,6 +374,7 @@ public class BotList {
         for (String fullName : this.botsNameByWorldUuid.getOrDefault(worldUuid, new HashSet<>())) {
             ServerBot bot = this.getBotByName(fullName);
             if (bot != null) {
+                bot.resume = org.magconch.bot.BotConfig.canResident;
                 this.removeBot(bot, BotRemoveEvent.RemoveReason.INTERNAL, null, org.magconch.bot.BotConfig.canResident, org.magconch.bot.BotConfig.canResident);
             }
         }
@@ -374,7 +388,6 @@ public class BotList {
     }
 
     public void loadResumeBotInfo() {
-        this.migrateLegacyBotsJsonIfPresent();
         if (!org.magconch.bot.BotConfig.enable || !org.magconch.bot.BotConfig.canResident) {
             return;
         }

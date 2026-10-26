@@ -100,6 +100,19 @@ public class CraftBot extends CraftPlayer implements Bot {
     }
 
     @Override
+    public boolean hasMetadata(@NotNull String metadataKey) {
+        return "NPC".equalsIgnoreCase(metadataKey) || super.hasMetadata(metadataKey);
+    }
+
+    @Override
+    public @NotNull java.util.List<org.bukkit.metadata.MetadataValue> getMetadata(@NotNull String metadataKey) {
+        if ("NPC".equalsIgnoreCase(metadataKey)) {
+            return java.util.List.of(new org.bukkit.metadata.FixedMetadataValue(org.magconch.util.MinecraftInternalPlugin.INSTANCE, true));
+        }
+        return super.getMetadata(metadataKey);
+    }
+
+    @Override
     public String toString() {
         return "CraftBot{" + "name=" + getName() + '}';
     }

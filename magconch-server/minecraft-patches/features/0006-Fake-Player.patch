@@ -108,6 +108,57 @@ index e70701663abd6f19a506690167d80f0dceab8000..9e721238876f7b8297125127cd908ac3
          boolean result = false;
          AdvancementProgress progress = this.getOrStartProgress(holder);
          boolean wasDone = progress.isDone();
+diff --git a/net/minecraft/server/commands/BanIpCommands.java b/net/minecraft/server/commands/BanIpCommands.java
+index dee5e12db878c13392083a46496de88d0b5924c3..f510b5a232a16da75433a24a4b6477e6b45e07c5 100644
+--- a/net/minecraft/server/commands/BanIpCommands.java
++++ b/net/minecraft/server/commands/BanIpCommands.java
+@@ -40,6 +40,12 @@ public class BanIpCommands {
+             return banIp(source, target, reason);
+         } else {
+             ServerPlayer player = source.getServer().getPlayerList().getPlayerByName(target);
++            // magconch start - disable ban
++            if (player instanceof org.magconch.bot.ServerBot) {
++                source.sendFailure(Component.literal("Permission denied"));
++                return 0;
++            }
++            // magconch end - disable ban
+             if (player != null) {
+                 return banIp(source, player.getIpAddress(), reason);
+             } else {
+diff --git a/net/minecraft/server/commands/BanPlayerCommands.java b/net/minecraft/server/commands/BanPlayerCommands.java
+index c87bc86c57fde9d92e3927bdead5cdaf2e935744..ae96ce246ab68d5fa8fc332366d255363088cdf9 100644
+--- a/net/minecraft/server/commands/BanPlayerCommands.java
++++ b/net/minecraft/server/commands/BanPlayerCommands.java
+@@ -38,8 +38,16 @@ public class BanPlayerCommands {
+     private static int banPlayers(final CommandSourceStack source, final Collection<NameAndId> players, final @Nullable Component reason) throws CommandSyntaxException {
+         UserBanList list = source.getServer().getPlayerList().getBans();
+         int count = 0;
++        boolean hasBot = false; // magconch - disable ban
+ 
+         for (NameAndId player : players) {
++            // magconch start - disable ban
++            if (player.isBot()) {
++                source.sendFailure(Component.literal("Permission denied"));
++                hasBot = true;
++                continue;
++            }
++            // magconch end - disable ban
+             if (!list.isBanned(player)) {
+                 UserBanListEntry entry = new UserBanListEntry(player, null, source.getTextName(), null, reason == null ? null : reason.getString());
+                 list.add(entry);
+@@ -53,7 +61,11 @@ public class BanPlayerCommands {
+         }
+ 
+         if (count == 0) {
+-            throw ERROR_ALREADY_BANNED.create();
++            if (hasBot) {
++                return count;
++            } else {
++                throw ERROR_ALREADY_BANNED.create();
++            }
+         } else {
+             return count;
+         }
 diff --git a/net/minecraft/server/commands/KickCommand.java b/net/minecraft/server/commands/KickCommand.java
 index bf361ef4cbf2a55b8bba5a75111257fb2d6d471f..363d6c543b51c4e199a1b009dca07172356bf58e 100644
 --- a/net/minecraft/server/commands/KickCommand.java
@@ -123,8 +174,20 @@ index bf361ef4cbf2a55b8bba5a75111257fb2d6d471f..363d6c543b51c4e199a1b009dca07172
              if (!source.getServer().isSingleplayerOwner(player.nameAndId())) {
                  player.connection.disconnect(reason, org.bukkit.event.player.PlayerKickEvent.Cause.KICKED); // Paper - kick event cause
                  source.sendSuccess(() -> Component.translatable("commands.kick.success", player.getDisplayName(), reason), true);
+diff --git a/net/minecraft/server/commands/OpCommand.java b/net/minecraft/server/commands/OpCommand.java
+index 636f56bfc0e9075b257e2eb14e858975bdedd801..f8eb4c013b6745cf70900029ab11da4e57f8f59c 100644
+--- a/net/minecraft/server/commands/OpCommand.java
++++ b/net/minecraft/server/commands/OpCommand.java
+@@ -39,6 +39,7 @@ public class OpCommand {
+         int count = 0;
+ 
+         for (NameAndId player : players) {
++            if (player.isBot()) continue; // magconch - disable op
+             if (!list.isOp(player)) {
+                 list.op(player);
+                 count++;
 diff --git a/net/minecraft/server/dedicated/DedicatedServer.java b/net/minecraft/server/dedicated/DedicatedServer.java
-index 25d7191c3062d8ed40f5c7a465730d10735af5fa..2cbe38ab730afc8b0616e95efc1fbdef54d7300d 100644
+index 25d7191c3062d8ed40f5c7a465730d10735af5fa..61d3b6016a99e6cee54c462bec2ac652cddb2368 100644
 --- a/net/minecraft/server/dedicated/DedicatedServer.java
 +++ b/net/minecraft/server/dedicated/DedicatedServer.java
 @@ -230,6 +230,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
@@ -135,7 +198,7 @@ index 25d7191c3062d8ed40f5c7a465730d10735af5fa..2cbe38ab730afc8b0616e95efc1fbdef
          this.setPlayerList(new DedicatedPlayerList(this, this.registries(), this.playerDataStorage));
          org.spigotmc.SpigotConfig.init((java.io.File) this.options.valueOf("spigot-settings"));
          org.spigotmc.SpigotConfig.registerCommands();
-@@ -248,6 +249,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+@@ -248,9 +249,11 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
          org.spigotmc.WatchdogThread.doStart(org.spigotmc.SpigotConfig.timeoutTime, org.spigotmc.SpigotConfig.restartOnCrash); // Paper - start watchdog thread
          consoleThread.start(); // Paper - Enhance console tab completions for brigadier commands; start console thread after MinecraftServer.console & PaperConfig are initialized
          io.papermc.paper.command.PaperCommands.registerCommands(this); // Paper - setup /paper command
@@ -143,16 +206,12 @@ index 25d7191c3062d8ed40f5c7a465730d10735af5fa..2cbe38ab730afc8b0616e95efc1fbdef
          this.server.spark.registerCommandBeforePlugins(this.server); // Paper - spark
          com.destroystokyo.paper.Metrics.PaperMetrics.startMetrics(); // Paper - start metrics
          com.destroystokyo.paper.VersionHistoryManager.INSTANCE.getClass(); // Paper - load version history now
-@@ -369,6 +371,7 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
- 
-         this.saveEverything(false, true, true);
-         this.notificationManager().serverStarted();
 +        org.magconch.bot.BotList.INSTANCE.loadResumeBotInfo(); // Magconch - bot
-         org.magconch.task.BossBarTask.startAll(); // magconch - tpsbar
-         return true;
-     }
+ 
+         // this.worldData.setGameType(properties.gameMode.get()); // CraftBukkit - moved to world loading
+         LOGGER.info("Default game type: {}", properties.gameMode.get());
 diff --git a/net/minecraft/server/level/ChunkMap.java b/net/minecraft/server/level/ChunkMap.java
-index fd0b9f20fbdd523d51550fd6009b5011e6e7e6e6..5fdd059ac7faaeb0feba1fc3d4d991c14fc762ff 100644
+index fd0b9f20fbdd523d51550fd6009b5011e6e7e6e6..a36306654cc57c3b4b2a95431ba1bbb056f12ee8 100644
 --- a/net/minecraft/server/level/ChunkMap.java
 +++ b/net/minecraft/server/level/ChunkMap.java
 @@ -980,7 +980,7 @@ public class ChunkMap extends SimpleRegionStorage implements ChunkHolder.PlayerP
@@ -164,6 +223,20 @@ index fd0b9f20fbdd523d51550fd6009b5011e6e7e6e6..5fdd059ac7faaeb0feba1fc3d4d991c1
          org.spigotmc.AsyncCatcher.catchOp("entity track"); // Spigot
          // Paper start - ignore and warn about illegal addEntity calls instead of crashing server
          if (!entity.valid || entity.level() != this.level || this.entityMap.containsKey(entity.getId())) {
+@@ -1451,6 +1451,13 @@ public class ChunkMap extends SimpleRegionStorage implements ChunkHolder.PlayerP
+                     }
+                 } else {
+                     this.removePlayer(player);
++                    // magconch start - render bot
++                    if (this.entity instanceof org.magconch.bot.ServerBot bot) {
++                        if (bot.needSendFakeData(player)) {
++                            bot.sendFakeData(player.connection, false);
++                        }
++                    }
++                    // magconch end - render bot
+                 }
+             }
+         }
 diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
 index 8389d812b2d80a122fd1945b3182c08cdeda7d1c..c57d8d8022e2d044721922dc580a0b1ee6f262c0 100644
 --- a/net/minecraft/server/level/ServerLevel.java
@@ -274,8 +347,39 @@ index 7443744e3f256983e52a1cefcaf66082e4a46a7b..35c41339e63d9bcb20814de3adf02be1
          String userName = name.toLowerCase(Locale.ROOT);
          boolean stateLocked = true; try { this.stateLock.lock(); // Paper - Fix GameProfileCache concurrency
          CachedUserNameToIdResolver.GameProfileInfo profileInfo = this.profilesByName.get(userName);
+diff --git a/net/minecraft/server/players/NameAndId.java b/net/minecraft/server/players/NameAndId.java
+index fb2c627a74e37f1270274d93d87f1262547dfd59..72b2e0a789a51f41cf727316914176692153e96f 100644
+--- a/net/minecraft/server/players/NameAndId.java
++++ b/net/minecraft/server/players/NameAndId.java
+@@ -8,18 +8,22 @@ import java.util.UUID;
+ import net.minecraft.core.UUIDUtil;
+ import org.jspecify.annotations.Nullable;
+ 
+-public record NameAndId(UUID id, String name) {
++public record NameAndId(UUID id, String name, boolean isBot) { // magconch - fakeplayer
+     public static final Codec<NameAndId> CODEC = RecordCodecBuilder.create(
+         i -> i.group(UUIDUtil.STRING_CODEC.fieldOf("id").forGetter(NameAndId::id), Codec.STRING.fieldOf("name").forGetter(NameAndId::name))
+-            .apply(i, NameAndId::new)
++            .apply(i, (uuid, n) -> new NameAndId(uuid, n, false))
+     );
+ 
+     public NameAndId(final GameProfile profile) {
+-        this(profile.id(), profile.name());
++        this(profile.id(), profile.name(), com.google.common.collect.Iterables.getFirst(profile.properties().get("is_bot"), null) instanceof com.mojang.authlib.properties.Property prop && "true".equals(prop.value())); // magconch - fakeplayer
+     }
+ 
+     public NameAndId(final com.mojang.authlib.services.response.NameAndId profile) {
+-        this(profile.id(), profile.name());
++        this(profile.id(), profile.name(), false); // magconch - fakeplayer
++    }
++
++    public NameAndId(UUID uuid, String name) {
++        this(uuid, name, false); // magconch - fakeplayer
+     }
+ 
+     public static @Nullable NameAndId fromJson(final JsonObject object) {
 diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
-index 61918c15348d4999dae26fb27460de5e4ee38f98..36783b1a613d95abf6f5e85d80771c7cbb8ebe5e 100644
+index 61918c15348d4999dae26fb27460de5e4ee38f98..7287875ccc21bd1d4c43fc7d4b9e9d84c229b1b1 100644
 --- a/net/minecraft/server/players/PlayerList.java
 +++ b/net/minecraft/server/players/PlayerList.java
 @@ -248,6 +248,17 @@ public abstract class PlayerList {
@@ -325,8 +429,44 @@ index 61918c15348d4999dae26fb27460de5e4ee38f98..36783b1a613d95abf6f5e85d80771c7c
  
          return names;
      }
+@@ -927,7 +947,11 @@ public abstract class PlayerList {
+     }
+ 
+     public @Nullable ServerPlayer getPlayerByName(final String name) {
+-        return this.playersByName.get(name.toLowerCase(java.util.Locale.ROOT)); // Spigot
++        ServerPlayer player = this.playersByName.get(name.toLowerCase(java.util.Locale.ROOT)); // Spigot
++        if (player == null && org.magconch.bot.BotList.INSTANCE != null) {
++            player = org.magconch.bot.BotList.INSTANCE.getBotByName(name);
++        }
++        return player;
+     }
+ 
+     public void broadcast(
+@@ -1246,7 +1270,11 @@ public abstract class PlayerList {
+     }
+ 
+     public @Nullable ServerPlayer getPlayer(final UUID uuid) {
+-        return this.playersByUUID.get(uuid);
++        ServerPlayer player = this.playersByUUID.get(uuid);
++        if (player == null && org.magconch.bot.BotList.INSTANCE != null) {
++            player = org.magconch.bot.BotList.INSTANCE.getBot(uuid);
++        }
++        return player;
+     }
+ 
+     public @Nullable ServerPlayer getPlayer(final String playerName) {
+@@ -1255,6 +1283,9 @@ public abstract class PlayerList {
+                 return player;
+             }
+         }
++        if (org.magconch.bot.BotList.INSTANCE != null) {
++            return org.magconch.bot.BotList.INSTANCE.getBotByName(playerName);
++        }
+ 
+         return null;
+     }
 diff --git a/net/minecraft/server/waypoints/ServerWaypointManager.java b/net/minecraft/server/waypoints/ServerWaypointManager.java
-index b9748a392c9f76e61a1b673085b4dd74c007c70d..b1a0f7230a5846f4b56facc2706b36ce076c312a 100644
+index b9748a392c9f76e61a1b673085b4dd74c007c70d..18be37b9b2783fb3e4642d2ac4b09349ea5f0fdf 100644
 --- a/net/minecraft/server/waypoints/ServerWaypointManager.java
 +++ b/net/minecraft/server/waypoints/ServerWaypointManager.java
 @@ -29,6 +29,11 @@ public class ServerWaypointManager implements WaypointManager<WaypointTransmitte
@@ -341,6 +481,18 @@ index b9748a392c9f76e61a1b673085b4dd74c007c70d..b1a0f7230a5846f4b56facc2706b36ce
          this.waypoints.add(waypoint);
  
          if (!this.locatorBarEnabled) return; // Paper - optimize ServerWaypointManager with locator bar disabled
+@@ -62,6 +67,11 @@ public class ServerWaypointManager implements WaypointManager<WaypointTransmitte
+     }
+ 
+     public void addPlayer(final ServerPlayer player) {
++        // magconch start - bot skip locator bar receiver
++        if (player instanceof org.magconch.bot.ServerBot) {
++            return;
++        }
++        // magconch end - bot skip locator bar receiver
+         this.players.add(player);
+ 
+         if (this.locatorBarEnabled) { // Paper - optimize ServerWaypointManager with locator bar disabled
 diff --git a/net/minecraft/world/entity/Entity.java b/net/minecraft/world/entity/Entity.java
 index 7258c0bc1bc0cb63ee4cc8f1456968432408897a..6d0e1197123c2029f8d45160101cf345f1a0d695 100644
 --- a/net/minecraft/world/entity/Entity.java
@@ -466,8 +618,38 @@ index 99179f6190e47afa1acc414be1e1dc2e7c3e22b6..0a7bcd8427f98143bee104630287b70c
      public int timeUntilLured;
      public int timeUntilHooked;
      public float fishAngle;
+diff --git a/net/minecraft/world/entity/vehicle/boat/AbstractBoat.java b/net/minecraft/world/entity/vehicle/boat/AbstractBoat.java
+index 6c9ec44a46b6f40a2b8b008cc50c0cafe5e909e6..d045cfea80dba8b6e966aa98dacf35d539e04235 100644
+--- a/net/minecraft/world/entity/vehicle/boat/AbstractBoat.java
++++ b/net/minecraft/world/entity/vehicle/boat/AbstractBoat.java
+@@ -271,6 +271,11 @@ public abstract class AbstractBoat extends VehicleEntity implements Leashable {
+             }
+ 
+             this.move(MoverType.SELF, this.getDeltaMovement());
++        } else if (this.getControllingPassenger() instanceof org.magconch.bot.ServerBot) { // magconch start - fakeplayer
++            this.floatBoat();
++            this.controlBoat();
++            this.move(MoverType.SELF, this.getDeltaMovement());
++            // magconch end - fakeplayer
+         } else {
+             this.setDeltaMovement(Vec3.ZERO);
+             this.deltaRotation = 0.0F;
+@@ -402,6 +407,13 @@ public abstract class AbstractBoat extends VehicleEntity implements Leashable {
+         }
+     }
+ 
++    // magconch start - fakeplayer
++    @Override
++    public boolean canSimulateMovement() {
++        return super.canSimulateMovement() || this.getControllingPassenger() instanceof org.magconch.bot.ServerBot;
++    }
++    // magconch end - fakeplayer
++
+     protected @Nullable SoundEvent getPaddleSound() {
+         return switch (this.getStatus()) {
+             case IN_WATER, UNDER_WATER, UNDER_FLOWING_WATER -> SoundEvents.BOAT_PADDLE_WATER;
 diff --git a/net/minecraft/world/inventory/AbstractContainerMenu.java b/net/minecraft/world/inventory/AbstractContainerMenu.java
-index c223581e30414842ce24079b47c82639d36b7e73..cf503483ca639d36237b0fb72fcedc0abcb439fc 100644
+index c223581e30414842ce24079b47c82639d36b7e73..73ae47c71cbdf4d2c5fb399be6711bb556315af8 100644
 --- a/net/minecraft/world/inventory/AbstractContainerMenu.java
 +++ b/net/minecraft/world/inventory/AbstractContainerMenu.java
 @@ -259,6 +259,20 @@ public abstract class AbstractContainerMenu {
@@ -491,6 +673,17 @@ index c223581e30414842ce24079b47c82639d36b7e73..cf503483ca639d36237b0fb72fcedc0a
      public void broadcastChanges() {
          for (int i = 0; i < this.slots.size(); i++) {
              ItemStack current = this.slots.get(i).getItem();
+@@ -400,6 +414,10 @@ public abstract class AbstractContainerMenu {
+     }
+ 
+     private void doClick(final int slotIndex, final int buttonNum, final ContainerInput containerInput, final Player player) {
++        if (!this.doClickCheck(slotIndex, buttonNum, containerInput, player)) {
++            this.sendAllDataToRemote();
++            return;
++        }
+         Inventory inventory = player.getInventory();
+         if (containerInput == ContainerInput.QUICK_CRAFT) {
+             int expectedStatus = this.quickcraftStatus;
 diff --git a/net/minecraft/world/item/ItemStack.java b/net/minecraft/world/item/ItemStack.java
 index 8321f55599d73cbab04e302f4f23fc87ed1ab465..9202383e295c5b6cfa0f073808959d35fac1cc90 100644
 --- a/net/minecraft/world/item/ItemStack.java
@@ -523,3 +716,19 @@ index 8321f55599d73cbab04e302f4f23fc87ed1ab465..9202383e295c5b6cfa0f073808959d35
      public boolean useOnRelease() {
          return this.getItem().useOnRelease(this);
      }
+diff --git a/net/minecraft/world/level/levelgen/PhantomSpawner.java b/net/minecraft/world/level/levelgen/PhantomSpawner.java
+index 9900096652c6a3c114b31fb6813a791ba5021db4..71a6c2ebbb99d89114dcdfdcf3d3d559b267cebf 100644
+--- a/net/minecraft/world/level/levelgen/PhantomSpawner.java
++++ b/net/minecraft/world/level/levelgen/PhantomSpawner.java
+@@ -47,6 +47,11 @@ public class PhantomSpawner implements CustomSpawner {
+                                     if (difficulty.isHarderThan(random.nextFloat() * 3.0F)) {
+                                         ServerStatsCounter stats = player.getStats();
+                                         int value = Mth.clamp(stats.getValue(Stats.CUSTOM.get(Stats.TIME_SINCE_REST)), 1, Integer.MAX_VALUE);
++                                        // magconch start - fakeplayer spawn
++                                        if (player instanceof org.magconch.bot.ServerBot bot && bot.getConfigValue(org.magconch.bot.agent.Configs.SPAWN_PHANTOM)) {
++                                            value = Math.max(bot.notSleepTicks, 1);
++                                        }
++                                        // magconch end - fakeplayer spawn
+                                         int dayLength = 24000;
+                                         if (random.nextInt(value) >= level.paperConfig().entities.behavior.playerInsomniaStartTicks) { // Paper - Ability to control player's insomnia and phantoms
+                                             BlockPos spawnPos = playerPos.above(20 + random.nextInt(15))
