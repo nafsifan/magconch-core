@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nafsi <i@nafsi.me>
+Date: Mon, 26 Oct 2026 17:32:03 +0800
+Subject: [PATCH] Ender Chest Six Rows
+
+
+diff --git a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+index b08ef262ab32fcc8f93c79668098f862dee688f9..5f439ddf95df520d27cb1ba7fd91d97b3ae62b87 100644
+--- a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
++++ b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+@@ -411,6 +411,15 @@ public class GlobalConfiguration extends ConfigurationPart {
+         public class Fishing extends ConfigurationPart {
+             public boolean antiCheat = true;
+         }
++
++        // magconch start - ender chest six rows
++        public EnderChest enderChest;
++
++        public class EnderChest extends ConfigurationPart {
++            public boolean sixRows = true;
++            public boolean usePermissionsForRows = false;
++        }
++        // magconch end - ender chest six rows
+     }
+     // magconch end - bot configuration
+ }
+diff --git a/src/main/java/io/papermc/paper/configuration/PaperConfigurations.java b/src/main/java/io/papermc/paper/configuration/PaperConfigurations.java
+index de9a78d5b20d13a114591e986e990b4bd973097a..326dc3d961126365d7a97e7c6f294d6721ab4720 100644
+--- a/src/main/java/io/papermc/paper/configuration/PaperConfigurations.java
++++ b/src/main/java/io/papermc/paper/configuration/PaperConfigurations.java
+@@ -224,6 +224,7 @@ public class PaperConfigurations extends Configurations<GlobalConfiguration, Wor
+     public GlobalConfiguration initializeGlobalConfiguration(final RegistryAccess registryAccess) throws ConfigurateException {
+         GlobalConfiguration configuration = super.initializeGlobalConfiguration(registryAccess);
+         GlobalConfiguration.set(configuration);
++        org.bukkit.event.inventory.InventoryType.ENDER_CHEST.setDefaultSize(configuration.magconch.enderChest.sixRows ? 54 : 27); // magconch - ender chest six rows
+         return configuration;
+     }
+ 
+diff --git a/src/main/java/org/bukkit/craftbukkit/inventory/CraftContainer.java b/src/main/java/org/bukkit/craftbukkit/inventory/CraftContainer.java
+index 2f41a92465b9da28e026297cc3528898bb1c8412..ab07084c4a8d279c4922a127950607b6dfd046fa 100644
+--- a/src/main/java/org/bukkit/craftbukkit/inventory/CraftContainer.java
++++ b/src/main/java/org/bukkit/craftbukkit/inventory/CraftContainer.java
+@@ -148,8 +148,12 @@ public class CraftContainer extends AbstractContainerMenu {
+             case PLAYER:
+             case CHEST:
+             case ENDER_CHEST:
++                // magconch start - ender chest six rows
++                this.delegate = new ChestMenu(io.papermc.paper.configuration.GlobalConfiguration.get().magconch.enderChest.sixRows ? net.minecraft.world.inventory.MenuType.GENERIC_9x6 : net.minecraft.world.inventory.MenuType.GENERIC_9x3, windowId, bottom, top, top.getContainerSize() / 9);
++                break;
+             case BARREL:
+                 this.delegate = new ChestMenu(net.minecraft.world.inventory.MenuType.GENERIC_9x3, windowId, bottom, top, top.getContainerSize() / 9);
++                // magconch end - ender chest six rows
+                 break;
+             case DISPENSER:
+             case DROPPER:
+diff --git a/src/main/java/org/bukkit/craftbukkit/inventory/CraftInventory.java b/src/main/java/org/bukkit/craftbukkit/inventory/CraftInventory.java
+index dadd540555cf7097c6ec3666f95eae0791ccd40f..24198f00ebe679ab19c2d30d6b30474dd99fb2a7 100644
+--- a/src/main/java/org/bukkit/craftbukkit/inventory/CraftInventory.java
++++ b/src/main/java/org/bukkit/craftbukkit/inventory/CraftInventory.java
+@@ -85,7 +85,7 @@ public class CraftInventory implements Inventory {
+ 
+     @Override
+     public void setContents(ItemStack[] items) {
+-        Preconditions.checkArgument(items.length <= this.getSize(), "Invalid inventory size (%s); expected %s or less", items.length, this.getSize());
++        // Preconditions.checkArgument(items.length <= this.getSize(), "Invalid inventory size (%s); expected %s or less", items.length, this.getSize()); // Purpur - Barrels and enderchests 6 rows
+ 
+         for (int i = 0; i < this.getSize(); i++) {
+             if (i >= items.length) {
