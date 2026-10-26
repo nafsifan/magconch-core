@@ -363,19 +363,6 @@ index 7258c0bc1bc0cb63ee4cc8f1456968432408897a..6d0e1197123c2029f8d45160101cf345
          return switch (this.getMoveSimulationType()) {
              case SERVER_AND_CLIENT -> true;
              case AUTHORITATIVE_SIDE -> this.isLocalInstanceAuthoritative();
-diff --git a/net/minecraft/world/entity/ExperienceOrb.java b/net/minecraft/world/entity/ExperienceOrb.java
-index 3a594416e711fc6fdbf0ac7c3484a9830324d4d8..9854c8f423182c4fb09b58bc0dc5ef77da909107 100644
---- a/net/minecraft/world/entity/ExperienceOrb.java
-+++ b/net/minecraft/world/entity/ExperienceOrb.java
-@@ -202,7 +202,7 @@ public class ExperienceOrb extends Entity {
-         Player prevTarget = this.followingPlayer; // CraftBukkit - store old target
-         if (this.followingPlayer == null || this.followingPlayer.isSpectator() || this.followingPlayer.distanceToSqr(this) > 64.0) {
-             Player nearestPlayer = this.level().getNearestPlayer(this, 8.0);
--            if (nearestPlayer != null && !nearestPlayer.isSpectator() && !nearestPlayer.isDeadOrDying()) {
-+            if (nearestPlayer != null && !nearestPlayer.isSpectator() && !nearestPlayer.isDeadOrDying() && !(nearestPlayer instanceof org.magconch.bot.ServerBot)) { // magconch - bot skip xp orb
-                 this.followingPlayer = nearestPlayer;
-             } else {
-                 this.followingPlayer = null;
 diff --git a/net/minecraft/world/entity/LivingEntity.java b/net/minecraft/world/entity/LivingEntity.java
 index b0998f46d192844b3713e9c2499ee2c75f885714..32cface3a2ef8878cb5f6afc94fd25bd574b5e03 100644
 --- a/net/minecraft/world/entity/LivingEntity.java
@@ -423,7 +410,7 @@ index b0998f46d192844b3713e9c2499ee2c75f885714..32cface3a2ef8878cb5f6afc94fd25bd
          if (!this.level().isClientSide()) {
              boolean wasUsingItem = this.isUsingItem();
 diff --git a/net/minecraft/world/entity/player/Player.java b/net/minecraft/world/entity/player/Player.java
-index 485b95402e23f6a39a77556d0b634244fd5fdfc3..8e13ab995d76ed2c0cb61a4cefcf83acce07a623 100644
+index 485b95402e23f6a39a77556d0b634244fd5fdfc3..38a1b3fac63502929235347ef8367f233f3b2484 100644
 --- a/net/minecraft/world/entity/player/Player.java
 +++ b/net/minecraft/world/entity/player/Player.java
 @@ -171,7 +171,7 @@ public abstract class Player extends Avatar implements ContainerUser {
@@ -444,15 +431,6 @@ index 485b95402e23f6a39a77556d0b634244fd5fdfc3..8e13ab995d76ed2c0cb61a4cefcf83ac
      private final ItemCooldowns cooldowns = this.createItemCooldowns();
      private Optional<GlobalPos> lastDeathLocation = Optional.empty();
      protected final List<Identifier> postEffects = new ArrayList<>();
-@@ -509,7 +509,7 @@ public abstract class Player extends Avatar implements ContainerUser {
-         super.aiStep();
-         this.yHeadRot = this.getYRot();
-         this.setSpeed((float)this.getAttributeValue(Attributes.MOVEMENT_SPEED));
--        if (this.getHealth() > 0.0F && !this.isSpectator()) {
-+        if (this.getHealth() > 0.0F && !this.isSpectator() && !(this instanceof org.magconch.bot.ServerBot)) { // magconch - bot skip item and xp pickup
-             AABB pickupArea;
-             if (this.isPassenger() && !this.getVehicle().isRemoved()) {
-                 pickupArea = this.getBoundingBox().minmax(this.getVehicle().getBoundingBox()).inflate(1.0, 0.0, 1.0);
 @@ -545,7 +545,11 @@ public abstract class Player extends Avatar implements ContainerUser {
      public void removeEntitiesOnShoulder() {
      }
