@@ -42,7 +42,7 @@ public class BotCommand extends RootNode {
     }
 
     @Override
-    protected ArgumentBuilder<CommandSourceStack, ?> compile() {
+    public ArgumentBuilder<CommandSourceStack, ?> compile() {
         registerPermissions(PERM_BASE, this.children);
         return super.compile();
     }

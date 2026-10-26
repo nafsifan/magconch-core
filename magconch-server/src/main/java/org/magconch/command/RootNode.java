@@ -55,7 +55,9 @@ public abstract class RootNode extends LiteralNode {
         PaperCommands.INSTANCE.setValid();
         PaperCommands.INSTANCE.getDispatcher().register(builder);
         PaperCommands.INSTANCE.invalidate();
-        Bukkit.getOnlinePlayers().forEach(org.bukkit.entity.Player::updateCommands);
+        if (Bukkit.getServer() != null) {
+            Bukkit.getOnlinePlayers().forEach(org.bukkit.entity.Player::updateCommands);
+        }
     }
 
     public void unregister() {

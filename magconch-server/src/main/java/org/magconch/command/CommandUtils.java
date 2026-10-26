@@ -31,7 +31,13 @@ public class CommandUtils {
     }
 
     public static void registerPermissions(@NotNull List<String> permissions) {
+        if (Bukkit.getServer() == null) {
+            return;
+        }
         PluginManager pluginManager = Bukkit.getServer().getPluginManager();
+        if (pluginManager == null) {
+            return;
+        }
         for (String perm : permissions) {
             if (pluginManager.getPermission(perm) == null) {
                 pluginManager.addPermission(new Permission(perm, PermissionDefault.OP));
